@@ -19,16 +19,11 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
 
     @Override
     public String generatePreview(String runId, String message) {
+
         requireText(runId, "runId");
         requireText(message, "message");
 
-        AgentRequest request = AgentRequest.builder()
-                .requestId(runId)
-                .sessionId(runId)
-                .instruction(message)
-                .toolCallingEnabled(true)
-                .validationEnabled(true)
-                .build();
+        AgentRequest request = AgentRequest.builder().requestId(runId).sessionId(runId).instruction(message).toolCallingEnabled(true).validationEnabled(true).build();
 
         AgentResponse response = agentExecutor.execute(request);
 
@@ -41,6 +36,7 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
 
     @Override
     public void executeApproved(String runId, String approvalId, String action, String fileName, String content) {
+
         requireText(runId, "runId");
         requireText(approvalId, "approvalId");
         requireText(action, "action");

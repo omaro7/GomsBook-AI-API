@@ -74,3 +74,31 @@ curl -i -X POST http://localhost:5001/api/agent/runs/1505c7f8-0bc9-40e2-a9dd-c83
 HTTP/1.1 200
 Content-Length: 0
 Date: Sat, 29 Aug 2026 08:29:59 GMT
+
+-------------------------------------------------------------------------------------------------
+3. GomsBook-AI-Agent-Core 적용 후 API 호출 테스트
+curl -X POST http://localhost:5001/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"안녕하세요. 한 문장으로 응답해주세요.\"}"
+{"runId":"95d8a8c8-66aa-4c5e-ba52-8a55dc07753f"}
+
+curl -N http://localhost:5001/api/agent/runs/95d8a8c8-66aa-4c5e-ba52-8a55dc07753f/events
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행을 시작합니다.","runId":"95d8a8c8-66aa-4c5e-ba52-8a55dc07753f","timestamp":"2026-08-29T11:56:21.362922700Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_STARTED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"안녕하세요, 무엇을 도와드릴까요?","runId":"95d8a8c8-66aa-4c5e-ba52-8a55dc07753f","timestamp":"2026-08-29T11:56:22.105796300Z","title":null,"toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행이 완료되었습니다.","runId":"95d8a8c8-66aa-4c5e-ba52-8a55dc07753f","timestamp":"2026-08-29T11:56:22.106804200Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_COMPLETED"}
+
+
+STS Console 로그 정상확인
+[GomsBook AI] Available tools = 0
+[GomsBook AI] Agent iteration = 1
+[GomsBook AI] LLM response model = gemma4:31b
+[GomsBook AI] LLM tool call count = 0
+[GomsBook AI] No Tool Call. Agent execution completed.
+
+GomsBook-AI-API → AgentEngineBridge → Core AgentExecutor → Ollama 실제 런타임 연결이 성공
+
+
+
