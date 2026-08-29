@@ -100,5 +100,80 @@ STS Console 로그 정상확인
 
 GomsBook-AI-API → AgentEngineBridge → Core AgentExecutor → Ollama 실제 런타임 연결이 성공
 
+-------------------------------------------------------------------------------------------------
+4.DefaultToolExecutorSmokeTest 
+→ Run As
+→ Java Application
 
+정상확인
+[GomsBook AI Core] DefaultToolExecutor smoke test start
+[GomsBook AI Core] -------------------------
+[GomsBook AI Core] Registry Size = 1
+[GomsBook AI Core] Tool Names = [echo]
+[GomsBook AI Core] Can Execute = true
+[GomsBook AI Core] Result Tool = echo
+[GomsBook AI Core] Result Status = SUCCESS
+[GomsBook AI Core] Result Data = {message=hello-gomsbook}
+[GomsBook AI Core] -------------------------
+[GomsBook AI Core] DefaultToolExecutorSmokeTest success
+
+-------------------------------------------------------------------------------------------------
+5.ToolDefinitionProviderSmokeTest
+→ Run As
+→ Java Application
+
+정상확인
+[GomsBook AI Core] ToolDefinitionProvider smoke test start
+[GomsBook AI Core] -------------------------
+[GomsBook AI Core] Registry Size = 1
+[GomsBook AI Core] Definition Count = 1
+[GomsBook AI Core] Tool Name = echo
+[GomsBook AI Core] Tool Description = 입력받은 message 문자열을 그대로 반환하는 테스트 Tool입니다.
+[GomsBook AI Core] Tool Parameters = {properties={message={description=반환할 문자열, type=string}}, type=object, required=[message]}
+[GomsBook AI Core] -------------------------
+[GomsBook AI Core] ToolDefinitionProviderSmokeTest success
+
+
+-------------------------------------------------------------------------------------------------
+5.AgentToolRegistrarSmokeTest
+→ Run As
+→ Java Application
+
+정상확인
+[GomsBook AI Core] AgentToolRegistrar smoke test start
+[GomsBook AI Core] Registry Size = 1
+[GomsBook AI Core] Tool Names = [echo]
+[GomsBook AI Core] AgentToolRegistrarSmokeTest success
+
+
+
+curl -X POST http://localhost:5001/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"echo 도구를 사용해서 hello-gomsbook 문자열을 그대로 반환해주세요.\"}"
+{"runId":"358fa601-4295-429d-afe2-14e85c9183cd"}
+
+curl -N http://localhost:5001/api/agent/runs/0b99e549-4ee6-4e12-87e5-d4d578105205/events
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행을 시작합니다.","runId":"0b99e549-4ee6-4e12-87e5-d4d578105205","timestamp":"2026-08-29T12:55:30.794541400Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_STARTED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"hello-gomsbook","runId":"0b99e549-4ee6-4e12-87e5-d4d578105205","timestamp":"2026-08-29T12:55:31.967224800Z","title":null,"toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행이 완료되었습니다.","runId":"0b99e549-4ee6-4e12-87e5-d4d578105205","timestamp":"2026-08-29T12:55:31.968223300Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_COMPLETED"}
+
+
+정상확인
+[GomsBook AI] Available tools = 1
+[GomsBook AI] Tool = echo
+[GomsBook AI] Agent iteration = 1
+[GomsBook AI] LLM response model = gemma4:31b
+[GomsBook AI] LLM tool call count = 1
+[GomsBook AI] Tool Call = echo
+[GomsBook AI] Tool Call ID = ollama-tool-call-0
+[GomsBook AI] Tool Arguments = {message=hello-gomsbook}
+[GomsBook AI] Tool Result = ToolResult{requestId='0b99e549-4ee6-4e12-87e5-d4d578105205', toolCallId='ollama-tool-call-0', toolName='echo', status=SUCCESS, message='Echo Tool executed successfully.', dataNames=[message], issueCount=0, errorCode='null', errorMessage='null', startedAt=null, completedAt=null}
+[GomsBook AI] Tool Message = {"toolName":"echo","status":"SUCCESS","message":"Echo Tool executed successfully.","data":{"message":"hello-gomsbook"}}
+[GomsBook AI] Agent iteration = 2
+[GomsBook AI] LLM response model = gemma4:31b
+[GomsBook AI] LLM tool call count = 0
+[GomsBook AI] No Tool Call. Agent execution completed.
 

@@ -1,7 +1,5 @@
 package kr.co.goms.gomsbook.ai.api.config;
 
-import java.util.List;
-
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -14,11 +12,15 @@ import kr.co.goms.gomsbook.ai.llm.LlmClient;
 import kr.co.goms.gomsbook.ai.llm.model.ChatModelProvider;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaConfiguration;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaLlmClient;
-import kr.co.goms.gomsbook.ai.tool.ToolContext;
+import kr.co.goms.gomsbook.ai.tool.AgentToolRegistrar;
+import kr.co.goms.gomsbook.ai.tool.DefaultAgentToolRegistrar;
+import kr.co.goms.gomsbook.ai.tool.DefaultToolDefinitionMapper;
+import kr.co.goms.gomsbook.ai.tool.DefaultToolDefinitionProvider;
+import kr.co.goms.gomsbook.ai.tool.DefaultToolExecutor;
+import kr.co.goms.gomsbook.ai.tool.ToolDefinitionMapper;
 import kr.co.goms.gomsbook.ai.tool.ToolDefinitionProvider;
 import kr.co.goms.gomsbook.ai.tool.ToolExecutor;
-import kr.co.goms.gomsbook.ai.tool.ToolRequest;
-import kr.co.goms.gomsbook.ai.tool.ToolResult;
+import kr.co.goms.gomsbook.ai.tool.ToolRegistry;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -53,25 +55,30 @@ public class AgentEngineConfiguration {
     }
 
     @Bean
-    public ToolDefinitionProvider toolDefinitionProvider() {
-        return () -> List.of();
+    public ToolRegistry toolRegistry() {
+        ToolRegistry registry = new ToolRegistry();
+        new DefaultAgentToolRegistrar().registerTools(registry);
+        System.out.println("[GomsBook AI API] Registered tools = " + registry.getToolNames());
+        return registry;
+    }
+    @Bean
+    public AgentToolRegistrar agentToolRegistrar() {
+        return new DefaultAgentToolRegistrar();
     }
 
     @Bean
-    public ToolExecutor toolExecutor() {
+    public ToolDefinitionMapper toolDefinitionMapper() {
+        return new DefaultToolDefinitionMapper();
+    }
 
-        return new ToolExecutor() {
+    @Bean
+    public ToolDefinitionProvider toolDefinitionProvider(ToolRegistry toolRegistry, ToolDefinitionMapper toolDefinitionMapper) {
+        return new DefaultToolDefinitionProvider(toolRegistry, toolDefinitionMapper);
+    }
 
-            @Override
-            public ToolResult execute(ToolRequest request, ToolContext context) {
-                throw new IllegalStateException("No Agent Tools are registered.");
-            }
-
-            @Override
-            public boolean canExecute(String toolName) {
-                return false;
-            }
-        };
+    @Bean
+    public ToolExecutor toolExecutor(ToolRegistry toolRegistry) {
+        return new DefaultToolExecutor(toolRegistry);
     }
 
     @Bean
