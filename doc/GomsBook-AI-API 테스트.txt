@@ -1,0 +1,37 @@
+GomsBook-AI-API 테스트
+
+curl -X POST http://localhost:5001/api/agent/run ^
+More?   -H "Content-Type: application/json" ^
+More?   -d "{\"message\":\"현재 EPUB을 검사해주세요.\"}"
+
+{"runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429"}
+
+
+curl -N http://localhost:5001/api/agent/runs/e958acda-c16f-4d45-a4f0-a9e7bc884429/events
+
+event:message
+data:{"message":"Agent 실행을 시작합니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:44.989142100Z","toolCallId":null,"toolName":null,"type":"AGENT_STARTED"}
+
+event:message
+data:{"message":"요청을 확인했습니다: 현재 EPUB을 검사해주세요.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:45.497325300Z","toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"message":"RAG 검색을 시작합니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:46.002844900Z","toolCallId":null,"toolName":null,"type":"RAG_STARTED"}
+
+event:message
+data:{"message":"Mock RAG Context를 찾았습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:46.716790400Z","toolCallId":null,"toolName":null,"type":"RAG_CONTEXT"}
+
+event:message
+data:{"message":"RAG 검색이 완료되었습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:47.020296200Z","toolCallId":null,"toolName":null,"type":"RAG_COMPLETED"}
+
+event:message
+data:{"message":"EPUB 검사 도구를 실행합니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:47.536568600Z","toolCallId":"9a5ab390-1134-4776-9185-ebf014dd0330","toolName":"validate_epub","type":"TOOL_STARTED"}
+
+event:message
+data:{"message":"EPUB 검사 도구 실행이 완료되었습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:48.542549700Z","toolCallId":"9a5ab390-1134-4776-9185-ebf014dd0330","toolName":"validate_epub","type":"TOOL_COMPLETED"}
+
+event:message
+data:{"message":"Mock Agent 테스트가 완료되었습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:49.045756900Z","toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"message":"Agent 실행이 완료되었습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:49.349722700Z","toolCallId":null,"toolName":null,"type":"AGENT_COMPLETED"}
