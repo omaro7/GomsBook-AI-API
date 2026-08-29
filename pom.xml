@@ -68,6 +68,11 @@
 			<artifactId>spring-boot-starter-webmvc-test</artifactId>
 			<scope>test</scope>
 		</dependency>
+		<dependency>
+		    <groupId>kr.co.goms.gomsbook.ai</groupId>
+		    <artifactId>GomsBook-AI-Agent-Core</artifactId>
+		    <version>1.0.0-SNAPSHOT</version>
+		</dependency>
 	</dependencies>
 
 	<build>

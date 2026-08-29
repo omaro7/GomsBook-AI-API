@@ -14,58 +14,78 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 public class AgentRunService {
 
     private final Map<String, String> pendingRuns = new ConcurrentHashMap<>();
-
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
-
+    private final Map<String, PendingApproval> pendingApprovals = new ConcurrentHashMap<>();
     private final ExecutorService executor = Executors.newCachedThreadPool();
 
     public String run(String message) {
-
         String runId = UUID.randomUUID().toString();
-
         pendingRuns.put(runId, message);
-
         return runId;
-
     }
 
     public SseEmitter subscribe(String runId) {
-
         String message = pendingRuns.remove(runId);
-
-        if (message == null) {
-
-            throw new IllegalArgumentException(
-                    "Agent run was not found: "
-                            + runId);
-
-        }
+        if (message == null) throw new IllegalArgumentException("Agent run was not found: " + runId);
 
         SseEmitter emitter = new SseEmitter(0L);
-
         emitters.put(runId, emitter);
 
         emitter.onCompletion(() -> cleanup(runId));
-
         emitter.onTimeout(() -> cleanup(runId));
-
         emitter.onError(error -> cleanup(runId));
 
-        executor.submit(
-                () -> executeMockAgent(
-                        runId,
-                        message));
+        executor.submit(() -> executeMockAgent(runId, message));
 
         return emitter;
-
     }
 
-    private void executeMockAgent(
-            String runId,
-            String message) {
+    public void approve(String runId, String approvalId) {
+        PendingApproval approval = findPendingApproval(runId, approvalId);
+        pendingApprovals.remove(approvalId);
 
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.APPROVAL_APPROVED)
+                        .message("사용자가 작업을 승인했습니다.")
+                        .approvalId(approvalId)
+                        .build());
+
+        executor.submit(() -> executeApprovedAction(approval));
+    }
+
+    public void reject(String runId, String approvalId) {
+        PendingApproval approval = findPendingApproval(runId, approvalId);
+        pendingApprovals.remove(approvalId);
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.APPROVAL_REJECTED)
+                        .message("사용자가 작업을 취소했습니다.")
+                        .approvalId(approvalId)
+                        .build());
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.ASSISTANT_MESSAGE)
+                        .message(approval.fileName + " 생성을 취소했습니다.")
+                        .build());
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.AGENT_COMPLETED)
+                        .message("Agent 실행이 완료되었습니다.")
+                        .build());
+
+        complete(runId);
+    }
+
+    private void executeMockAgent(String runId, String message) {
         try {
-
             send(
                     AgentEvent.builder()
                             .runId(runId)
@@ -84,161 +104,264 @@ public class AgentRunService {
 
             sleep(500);
 
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.RAG_STARTED)
-                            .message("RAG 검색을 시작합니다.")
-                            .build());
+            if (isAuthorGenerationRequest(message)) {
+                requestAuthorApproval(runId);
+                return;
+            }
 
-            sleep(700);
+            executeDefaultMockAgent(runId);
 
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.RAG_CONTEXT)
-                            .message("Mock RAG Context를 찾았습니다.")
-                            .build());
+        } catch (Exception exception) {
+            fail(runId, exception);
+        }
+    }
 
-            sleep(300);
+    private void requestAuthorApproval(String runId) throws IOException {
+        String approvalId = UUID.randomUUID().toString();
+        String fileName = "author.xhtml";
+        String content = createMockAuthorXhtml();
 
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.RAG_COMPLETED)
-                            .message("RAG 검색이 완료되었습니다.")
-                            .build());
+        PendingApproval approval = new PendingApproval(approvalId, runId, "CREATE_EPUB_AUTHOR", fileName, content);
+        pendingApprovals.put(approvalId, approval);
 
-            sleep(500);
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.APPROVAL_REQUIRED)
+                        .message("다음 내용으로 author.xhtml을 생성하시겠습니까?")
+                        .approvalId(approvalId)
+                        .title("author.xhtml 생성")
+                        .fileName(fileName)
+                        .content(content)
+                        .build());
+    }
 
-            String toolCallId = UUID.randomUUID().toString();
-
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.TOOL_STARTED)
-                            .message("EPUB 검사 도구를 실행합니다.")
-                            .toolCallId(toolCallId)
-                            .toolName("validate_epub")
-                            .build());
-
-            sleep(1000);
+    private void executeApprovedAction(PendingApproval approval) {
+        try {
+            if ("CREATE_EPUB_AUTHOR".equals(approval.action)) executeCreateAuthor(approval);
 
             send(
                     AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.TOOL_COMPLETED)
-                            .message("EPUB 검사 도구 실행이 완료되었습니다.")
-                            .toolCallId(toolCallId)
-                            .toolName("validate_epub")
-                            .build());
-
-            sleep(500);
-
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.ASSISTANT_MESSAGE)
-                            .message("Mock Agent 테스트가 완료되었습니다.")
-                            .build());
-
-            sleep(300);
-
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
+                            .runId(approval.runId)
                             .type(AgentEventType.AGENT_COMPLETED)
                             .message("Agent 실행이 완료되었습니다.")
                             .build());
 
-            complete(runId);
+            complete(approval.runId);
 
         } catch (Exception exception) {
-
-            sendSafely(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.AGENT_FAILED)
-                            .message(exception.getMessage())
-                            .build());
-
-            complete(runId);
-
+            fail(approval.runId, exception);
         }
-
     }
 
-    private void send(AgentEvent event)
-            throws IOException {
+    private void executeCreateAuthor(PendingApproval approval) throws IOException {
+        send(
+                AgentEvent.builder()
+                        .runId(approval.runId)
+                        .type(AgentEventType.TOOL_STARTED)
+                        .message(approval.fileName + " 생성을 시작합니다.")
+                        .toolName("generate_epub_author")
+                        .build());
 
-        SseEmitter emitter =
-                emitters.get(event.getRunId());
+        /*
+         * 현재는 Mock 단계입니다.
+         * 실제 GomsBook-AI-Agent 연동 시 승인된 content를 Agent로 전달하고
+         * author.xhtml 저장, OPF/NAV 갱신 등을 Agent에서 수행합니다.
+         */
 
-        if (emitter == null) {
+        sleep(500);
 
-            throw new IllegalStateException(
-                    "SSE emitter was not found: "
-                            + event.getRunId());
+        send(
+                AgentEvent.builder()
+                        .runId(approval.runId)
+                        .type(AgentEventType.TOOL_COMPLETED)
+                        .message(approval.fileName + " 생성이 완료되었습니다.")
+                        .toolName("generate_epub_author")
+                        .build());
 
-        }
+        send(
+                AgentEvent.builder()
+                        .runId(approval.runId)
+                        .type(AgentEventType.ASSISTANT_MESSAGE)
+                        .message(approval.fileName + "을 생성했습니다.")
+                        .build());
+    }
 
-        emitter.send(
-                SseEmitter.event()
-                        .name("message")
-                        .data(event));
+    private void executeDefaultMockAgent(String runId) throws IOException {
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_STARTED)
+                        .message("RAG 검색을 시작합니다.")
+                        .build());
 
+        sleep(700);
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_CONTEXT)
+                        .message("Mock RAG Context를 찾았습니다.")
+                        .build());
+
+        sleep(300);
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_COMPLETED)
+                        .message("RAG 검색이 완료되었습니다.")
+                        .build());
+
+        sleep(500);
+
+        String toolCallId = UUID.randomUUID().toString();
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.TOOL_STARTED)
+                        .message("EPUB 검사 도구를 실행합니다.")
+                        .toolCallId(toolCallId)
+                        .toolName("validate_epub")
+                        .build());
+
+        sleep(1000);
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.TOOL_COMPLETED)
+                        .message("EPUB 검사 도구 실행이 완료되었습니다.")
+                        .toolCallId(toolCallId)
+                        .toolName("validate_epub")
+                        .build());
+
+        sleep(500);
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.ASSISTANT_MESSAGE)
+                        .message("Mock Agent 테스트가 완료되었습니다.")
+                        .build());
+
+        sleep(300);
+
+        send(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.AGENT_COMPLETED)
+                        .message("Agent 실행이 완료되었습니다.")
+                        .build());
+
+        complete(runId);
+    }
+
+    private PendingApproval findPendingApproval(String runId, String approvalId) {
+        if (approvalId == null || approvalId.isBlank()) throw new IllegalArgumentException("approvalId must not be blank");
+
+        PendingApproval approval = pendingApprovals.get(approvalId);
+
+        if (approval == null) throw new IllegalArgumentException("Pending approval was not found: " + approvalId);
+        if (!approval.runId.equals(runId)) throw new IllegalArgumentException("Approval run ID does not match: " + runId);
+
+        return approval;
+    }
+
+    private boolean isAuthorGenerationRequest(String message) {
+        if (message == null) return false;
+
+        String normalized = message.toLowerCase();
+
+        return normalized.contains("author.xhtml")
+                || normalized.contains("작가소개")
+                || normalized.contains("작가 소개");
+    }
+
+    private String createMockAuthorXhtml() {
+        return """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <!DOCTYPE html>
+                <html xmlns="http://www.w3.org/1999/xhtml"
+                      xmlns:epub="http://www.idpf.org/2007/ops"
+                      lang="ko"
+                      xml:lang="ko">
+                <head>
+                    <meta charset="UTF-8"/>
+                    <title>작가 소개</title>
+                </head>
+                <body>
+                    <section epub:type="bio" aria-labelledby="author-title">
+                        <h1 id="author-title">작가 소개</h1>
+                        <p>작가 소개 내용입니다.</p>
+                    </section>
+                </body>
+                </html>
+                """;
+    }
+
+    private void send(AgentEvent event) throws IOException {
+        SseEmitter emitter = emitters.get(event.getRunId());
+        if (emitter == null) throw new IllegalStateException("SSE emitter was not found: " + event.getRunId());
+        emitter.send(SseEmitter.event().name("message").data(event));
     }
 
     private void sendSafely(AgentEvent event) {
-
         try {
-
             send(event);
-
         } catch (Exception ignored) {
-
         }
+    }
 
+    private void fail(String runId, Exception exception) {
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.AGENT_FAILED)
+                        .message(exception.getMessage())
+                        .build());
+
+        complete(runId);
     }
 
     private void complete(String runId) {
-
         SseEmitter emitter = emitters.remove(runId);
-
-        if (emitter != null) {
-
-            emitter.complete();
-
-        }
+        if (emitter != null) emitter.complete();
 
         pendingRuns.remove(runId);
-
+        pendingApprovals.entrySet().removeIf(entry -> entry.getValue().runId.equals(runId));
     }
 
     private void cleanup(String runId) {
-
         emitters.remove(runId);
-
         pendingRuns.remove(runId);
-
+        pendingApprovals.entrySet().removeIf(entry -> entry.getValue().runId.equals(runId));
     }
 
     private void sleep(long milliseconds) {
-
         try {
-
             Thread.sleep(milliseconds);
-
         } catch (InterruptedException exception) {
-
             Thread.currentThread().interrupt();
-
-            throw new IllegalStateException(
-                    "Agent execution was interrupted.",
-                    exception);
-
+            throw new IllegalStateException("Agent execution was interrupted.", exception);
         }
-
     }
 
+    private static class PendingApproval {
+
+        private final String approvalId;
+        private final String runId;
+        private final String action;
+        private final String fileName;
+        private final String content;
+
+        private PendingApproval(String approvalId, String runId, String action, String fileName, String content) {
+            this.approvalId = approvalId;
+            this.runId = runId;
+            this.action = action;
+            this.fileName = fileName;
+            this.content = content;
+        }
+    }
 }

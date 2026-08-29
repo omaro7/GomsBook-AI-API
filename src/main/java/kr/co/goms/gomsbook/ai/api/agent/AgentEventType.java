@@ -20,8 +20,11 @@ public enum AgentEventType {
 
     APPROVAL_REQUIRED,
 
+    APPROVAL_APPROVED,
+
+    APPROVAL_REJECTED,
+
     AGENT_COMPLETED,
 
     AGENT_FAILED
-
 }

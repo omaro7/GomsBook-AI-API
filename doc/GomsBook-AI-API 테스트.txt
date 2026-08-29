@@ -1,5 +1,6 @@
 GomsBook-AI-API 테스트
 
+1.Mock 테스트
 curl -X POST http://localhost:5001/api/agent/run ^
 More?   -H "Content-Type: application/json" ^
 More?   -d "{\"message\":\"현재 EPUB을 검사해주세요.\"}"
@@ -35,3 +36,41 @@ data:{"message":"Mock Agent 테스트가 완료되었습니다.","runId":"e958ac
 
 event:message
 data:{"message":"Agent 실행이 완료되었습니다.","runId":"e958acda-c16f-4d45-a4f0-a9e7bc884429","timestamp":"2026-08-29T04:28:49.349722700Z","toolCallId":null,"toolName":null,"type":"AGENT_COMPLETED"}
+
+
+2. author.xhtml 생성 테스트
+curl -X POST http://localhost:5001/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"작가소개 author.xhtml 만들어줘\"}"
+결과
+{"runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e"}
+
+curl -N http://localhost:5001/api/agent/runs/1505c7f8-0bc9-40e2-a9dd-c832d9cf260e/events
+결과
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행을 시작합니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:38:53.910246200Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_STARTED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"요청을 확인했습니다: 작가소개 author.xhtml 만들어줘","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:38:54.425009800Z","title":null,"toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"approvalId":"2bf7e23d-2de3-4840-9714-41229b4d903d","content":"<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE html>\n<html xmlns=\"http://www.w3.org/1999/xhtml\"\n      xmlns:epub=\"http://www.idpf.org/2007/ops\"\n      lang=\"ko\"\n      xml:lang=\"ko\">\n<head>\n    <meta charset=\"UTF-8\"/>\n    <title>작가 소개</title>\n</head>\n<body>\n    <section epub:type=\"bio\" aria-labelledby=\"author-title\">\n        <h1 id=\"author-title\">작가 소개</h1>\n        <p>작가 소개 내용입니다.</p>\n    </section>\n</body>\n</html>\n","fileName":"author.xhtml","message":"다음 내용으로 author.xhtml을 생성하시겠습니까?","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:38:54.931453700Z","title":"author.xhtml 생성","toolCallId":null,"toolName":null,"type":"APPROVAL_REQUIRED"}
+
+event:message
+data:{"approvalId":"2bf7e23d-2de3-4840-9714-41229b4d903d","content":null,"fileName":null,"message":"사용자가 작업을 승인했습니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:39:27.649083700Z","title":null,"toolCallId":null,"toolName":null,"type":"APPROVAL_APPROVED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"author.xhtml 생성을 시작합니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:39:27.650084100Z","title":null,"toolCallId":null,"toolName":"generate_epub_author","type":"TOOL_STARTED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"author.xhtml 생성이 완료되었습니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:39:28.162422600Z","title":null,"toolCallId":null,"toolName":"generate_epub_author","type":"TOOL_COMPLETED"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"author.xhtml을 생성했습니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:39:28.163357Z","title":null,"toolCallId":null,"toolName":null,"type":"ASSISTANT_MESSAGE"}
+
+event:message
+data:{"approvalId":null,"content":null,"fileName":null,"message":"Agent 실행이 완료되었습니다.","runId":"1505c7f8-0bc9-40e2-a9dd-c832d9cf260e","timestamp":"2026-08-29T08:39:28.164388600Z","title":null,"toolCallId":null,"toolName":null,"type":"AGENT_COMPLETED"}
+
+다른 CMD에서 실행해야함.
+curl -i -X POST http://localhost:5001/api/agent/runs/1505c7f8-0bc9-40e2-a9dd-c832d9cf260e/approvals/2bf7e23d-2de3-4840-9714-41229b4d903d/approve
+HTTP/1.1 200
+Content-Length: 0
+Date: Sat, 29 Aug 2026 08:29:59 GMT
