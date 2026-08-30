@@ -9,8 +9,8 @@
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>kr.co.goms</groupId>
-	<artifactId>gomsbook-ai-api</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<artifactId>GomsBook-AI-API</artifactId>
+	<version>1.0.0-SNAPSHOT</version>
 	<name>GomsBook-AI-API</name>
 	<description>GomsBook</description>
 	<url/>

@@ -1,0 +1,43 @@
+
+■GomsBook-AI-API Docker 적용
+ 1) jar 생성하기
+   D:\04.GomsBook-AI\GomsBook-AI-API>mvnw clean package -DskipTests
+   결과 >>> D:\04.GomsBook-AI\GomsBook-AI-API\target\GomsBook-AI-API-0.0.1-SNAPSHOT.jar 
+ 2)docker 폴더에 app.jar로 복사
+   copy /Y target\GomsBook-AI-API-1.0.0-SNAPSHOT.jar D:\04.GomsBook-AI\GomsBook-AI-Docker\agent-api\app.jar
+ 3)docker agent-api 재기동
+  docker compose build --no-cache agent-api
+  docker compose up -d --force-recreate agent-api
+  docker compose ps
+
+
+■GomsBook-AI-API Docker 말고, STS에서 바로 진행
+ 1) nginx.conf 수정 
+   - docker 용
+location /api/ {
+    proxy_pass http://agent-api:8080/api/;
+}
+
+  - 로컬용
+
+location /api/ {
+    proxy_pass http://host.docker.internal:5001/api/;
+
+    proxy_http_version 1.1;
+    proxy_buffering off;
+    proxy_cache off;
+}
+
+ host.docker.internal은 Docker 컨테이너에서 Windows 호스트에 접근할 때 사용하는 주소입니다.
+
+ 2)nginx docker 재기동
+   cd D:\04.GomsBook-AI\GomsBook-AI-Docker
+   docker compose restart nginx
+
+ 3) API는 STS에서 실행
+GomsBook-AI-API
+→ Run As
+→ Spring Boot App
+  
+ 4)확인
+curl -i -X POST http://localhost:2626/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"현재 프로젝트 정보를 알려주세요\"}"

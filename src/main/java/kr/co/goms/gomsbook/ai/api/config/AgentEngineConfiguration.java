@@ -1,17 +1,28 @@
 package kr.co.goms.gomsbook.ai.api.config;
 
+import java.nio.file.Path;
+import java.util.List;
+
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+import kr.co.goms.gomsbook.ai.accessibility.validation.AccessibilityValidator;
+import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultAccessibilityValidator;
 import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.DefaultAgentExecutor;
+import kr.co.goms.gomsbook.ai.epub.service.EpubCheckRunner;
+import kr.co.goms.gomsbook.ai.epub.service.PublishDirectoryProvider;
+import kr.co.goms.gomsbook.ai.epub.validation.EpubCheckRunnerValidator;
+import kr.co.goms.gomsbook.ai.epub.validation.EpubCheckValidator;
 import kr.co.goms.gomsbook.ai.json.GsonJsonMapper;
 import kr.co.goms.gomsbook.ai.json.JsonMapper;
 import kr.co.goms.gomsbook.ai.llm.LlmClient;
 import kr.co.goms.gomsbook.ai.llm.model.ChatModelProvider;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaConfiguration;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaLlmClient;
+import kr.co.goms.gomsbook.ai.project.CurrentProjectProvider;
+import kr.co.goms.gomsbook.ai.project.DefaultCurrentProjectProvider;
 import kr.co.goms.gomsbook.ai.tool.AgentToolRegistrar;
 import kr.co.goms.gomsbook.ai.tool.DefaultAgentToolRegistrar;
 import kr.co.goms.gomsbook.ai.tool.DefaultToolDefinitionMapper;
@@ -34,6 +45,18 @@ public class AgentEngineConfiguration {
     @Value("${gomsbook.ai.ollama.embedding-model}")
     private String embeddingModel;
 
+    @Value("${gomsbook.ai.project-root}")
+    private String projectRoot;
+
+    @Value("${gomsbook.ai.publish-directory}")
+    private String publishDirectory;
+
+    @Value("${gomsbook.ai.epubcheck.directory}")
+    private String epubCheckDirectory;
+
+    @Value("${gomsbook.ai.epubcheck.version}")
+    private String epubCheckVersion;
+
     @Bean
     public OllamaConfiguration ollamaConfiguration() {
         return OllamaConfiguration.builder().baseUrl(ollamaBaseUrl).model(chatModel).chatModel(chatModel).embeddingModel(embeddingModel).build();
@@ -55,15 +78,41 @@ public class AgentEngineConfiguration {
     }
 
     @Bean
-    public ToolRegistry toolRegistry() {
+    public CurrentProjectProvider currentProjectProvider() {
+        return new DefaultCurrentProjectProvider(() -> Path.of(projectRoot));
+    }
+
+    @Bean
+    public PublishDirectoryProvider publishDirectoryProvider() {
+        return () -> Path.of(publishDirectory);
+    }
+
+    @Bean
+    public EpubCheckRunner epubCheckRunner() {
+        return new EpubCheckRunner(Path.of(epubCheckDirectory), epubCheckVersion);
+    }
+
+    @Bean
+    public EpubCheckValidator epubCheckValidator(EpubCheckRunner epubCheckRunner) {
+        return new EpubCheckRunnerValidator(epubCheckRunner, epubCheckVersion);
+    }
+
+    @Bean
+    public AccessibilityValidator accessibilityValidator() {
+        return new DefaultAccessibilityValidator(List.of());
+    }
+
+    @Bean
+    public AgentToolRegistrar agentToolRegistrar(CurrentProjectProvider currentProjectProvider, PublishDirectoryProvider publishDirectoryProvider, EpubCheckValidator epubCheckValidator, AccessibilityValidator accessibilityValidator) {
+        return new DefaultAgentToolRegistrar(currentProjectProvider, publishDirectoryProvider, epubCheckValidator, accessibilityValidator);
+    }
+
+    @Bean
+    public ToolRegistry toolRegistry(AgentToolRegistrar agentToolRegistrar) {
         ToolRegistry registry = new ToolRegistry();
-        new DefaultAgentToolRegistrar().registerTools(registry);
+        agentToolRegistrar.registerTools(registry);
         System.out.println("[GomsBook AI API] Registered tools = " + registry.getToolNames());
         return registry;
-    }
-    @Bean
-    public AgentToolRegistrar agentToolRegistrar() {
-        return new DefaultAgentToolRegistrar();
     }
 
     @Bean

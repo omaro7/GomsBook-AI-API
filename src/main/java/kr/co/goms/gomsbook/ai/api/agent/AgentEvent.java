@@ -14,6 +14,7 @@ public class AgentEvent {
     private final String message;
     private final String toolCallId;
     private final String toolName;
+    private final Object data;
     private final String approvalId;
     private final String title;
     private final String fileName;
