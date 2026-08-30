@@ -1,6 +1,5 @@
 package kr.co.goms.gomsbook.ai.api.agent;
 
-import java.io.IOException;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -10,7 +9,11 @@ import java.util.concurrent.Executors;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import kr.co.goms.gomsbook.ai.agent.approval.AgentApproval;
+import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalExecutor;
+import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalService;
 import kr.co.goms.gomsbook.ai.api.agent.bridge.AgentEngineBridge;
+import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
 import kr.co.goms.gomsbook.ai.tool.ToolResult;
 
 @Service
@@ -18,189 +21,537 @@ public class AgentRunService {
 
     private final AgentEngineBridge agentEngineBridge;
 
-    private final Map<String, String> pendingRuns = new ConcurrentHashMap<>();
+    private final AgentSseEventDispatcher sseDispatcher;
 
-    private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
+    private final AgentApprovalService approvalService;
 
-    private final Map<String, PendingApproval> pendingApprovals = new ConcurrentHashMap<>();
+    private final AgentApprovalExecutor approvalExecutor;
 
-    private final ExecutorService executor = Executors.newCachedThreadPool();
+    private final Map<String, String> pendingRuns =
+            new ConcurrentHashMap<>();
 
-    public AgentRunService(AgentEngineBridge agentEngineBridge) {
+    private final ExecutorService executor =
+            Executors.newCachedThreadPool();
 
-        this.agentEngineBridge = agentEngineBridge;
+    public AgentRunService(
+            AgentEngineBridge agentEngineBridge,
+            AgentSseEventDispatcher sseDispatcher,
+            AgentApprovalService approvalService,
+            AgentApprovalExecutor approvalExecutor) {
+
+        this.agentEngineBridge =
+                agentEngineBridge;
+
+        this.sseDispatcher =
+                sseDispatcher;
+
+        this.approvalService =
+                approvalService;
+
+        this.approvalExecutor =
+                approvalExecutor;
     }
 
-    public String run(String message) {
+    public String run(
+            String message) {
 
-        String runId = UUID.randomUUID().toString();
+        String runId =
+                UUID.randomUUID()
+                        .toString();
 
-        pendingRuns.put(runId, message);
+        pendingRuns.put(
+                runId,
+                message
+        );
 
         return runId;
     }
 
-    public SseEmitter subscribe(String runId) {
+    public SseEmitter subscribe(
+            String runId) {
 
-        String message = pendingRuns.remove(runId);
+        SseEmitter emitter =
+                sseDispatcher.subscribe(
+                        runId
+                );
 
-        if (message == null) throw new IllegalArgumentException("Agent run was not found: " + runId);
+        String message =
+                pendingRuns.remove(
+                        runId
+                );
 
-        SseEmitter emitter = new SseEmitter(0L);
+        if (message != null) {
 
-        emitters.put(runId, emitter);
-
-        emitter.onCompletion(() -> cleanup(runId));
-
-        emitter.onTimeout(() -> cleanup(runId));
-
-        emitter.onError(error -> cleanup(runId));
-
-        executor.submit(() -> executeAgent(runId, message));
+            executor.submit(
+                    () -> executeAgent(
+                            runId,
+                            message
+                    )
+            );
+        }
 
         return emitter;
     }
 
-    public void approve(String runId, String approvalId) {
+    public void approve(
+            String runId,
+            String approvalId) {
 
-        PendingApproval approval = findPendingApproval(runId, approvalId);
+        AgentApproval approval =
+                approvalService.get(
+                        approvalId
+                );
 
-        pendingApprovals.remove(approvalId);
+        validateRun(
+                runId,
+                approval
+        );
+
+        approvalService.approve(
+                approvalId
+        );
 
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
-                        .type(AgentEventType.APPROVAL_APPROVED)
-                        .message("사용자가 작업을 승인했습니다.")
-                        .approvalId(approvalId)
+                        .type(
+                                AgentEventType.APPROVAL_APPROVED
+                        )
+                        .message(
+                                "사용자가 작업을 승인했습니다."
+                        )
+                        .approvalId(
+                                approval.getApprovalId()
+                        )
+                        .title(
+                                approval.getTitle()
+                        )
+                        .fileName(
+                                approval.getFileName()
+                        )
                         .build()
         );
 
-        executor.submit(() -> executeApprovedAction(approval));
+        executor.submit(
+                () -> executeApprovedAction(
+                        approval
+                )
+        );
     }
 
-    public void reject(String runId, String approvalId) {
+    public void reject(
+            String runId,
+            String approvalId) {
 
-        PendingApproval approval = findPendingApproval(runId, approvalId);
+        AgentApproval approval =
+                approvalService.get(
+                        approvalId
+                );
 
-        pendingApprovals.remove(approvalId);
+        validateRun(
+                runId,
+                approval
+        );
+
+        approvalService.reject(
+                approvalId
+        );
 
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
-                        .type(AgentEventType.APPROVAL_REJECTED)
-                        .message("사용자가 작업을 취소했습니다.")
-                        .approvalId(approvalId)
+                        .type(
+                                AgentEventType.APPROVAL_REJECTED
+                        )
+                        .message(
+                                "사용자가 작업을 취소했습니다."
+                        )
+                        .approvalId(
+                                approval.getApprovalId()
+                        )
+                        .title(
+                                approval.getTitle()
+                        )
+                        .fileName(
+                                approval.getFileName()
+                        )
                         .build()
         );
 
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
-                        .type(AgentEventType.ASSISTANT_MESSAGE)
-                        .message(approval.fileName + " 생성을 취소했습니다.")
+                        .type(
+                                AgentEventType.ASSISTANT_MESSAGE
+                        )
+                        .message(
+                                approval.getFileName()
+                                        + " 생성을 취소했습니다."
+                        )
                         .build()
         );
 
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
-                        .type(AgentEventType.AGENT_COMPLETED)
+                        .type(
+                                AgentEventType.AGENT_COMPLETED
+                        )
                         .build()
         );
 
-        complete(runId);
+        complete(
+                runId
+        );
     }
 
-    private void executeAgent(String runId, String message) {
+    private void executeAgent(
+            String runId,
+            String message) {
 
         try {
 
             send(
                     AgentEvent.builder()
                             .runId(runId)
-                            .type(AgentEventType.AGENT_STARTED)
-                            .message("Agent 실행을 시작합니다.")
+                            .type(
+                                    AgentEventType.AGENT_STARTED
+                            )
+                            .message(
+                                    "Agent 실행을 시작합니다."
+                            )
                             .build()
             );
 
-            if (isAuthorGenerationRequest(message)) {
+            String response =
+                    agentEngineBridge.generate(
+                            runId,
+                            message,
+                            toolResult -> handleToolResult(
+                                    runId,
+                                    toolResult
+                            )
+                    );
 
-                requestAuthorApproval(runId);
+            if (response != null
+                    && !response.isBlank()) {
+
+                send(
+                        AgentEvent.builder()
+                                .runId(runId)
+                                .type(
+                                        AgentEventType.ASSISTANT_MESSAGE
+                                )
+                                .message(
+                                        response
+                                )
+                                .build()
+                );
+            }
+
+            /*
+             * 승인 대기 중이면 SSE를 종료하지 않습니다.
+             *
+             * 이후 approve/reject 호출에서
+             * AGENT_COMPLETED 및 complete가 실행됩니다.
+             */
+            if (hasPendingApproval(
+                    runId
+            )) {
+
+                System.out.println(
+                        "[GomsBook AI API] Agent waiting for approval"
+                                + " | runId="
+                                + runId
+                );
 
                 return;
             }
 
-            String response = agentEngineBridge.generate(
-                    runId,
-                    message,
-                    toolResult -> handleToolResult(
-                            runId,
-                            toolResult
-                    )
-            );
-
             send(
                     AgentEvent.builder()
                             .runId(runId)
-                            .type(AgentEventType.ASSISTANT_MESSAGE)
-                            .message(response)
+                            .type(
+                                    AgentEventType.AGENT_COMPLETED
+                            )
                             .build()
             );
 
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(AgentEventType.AGENT_COMPLETED)
-                            .build()
+            complete(
+                    runId
             );
-
-            complete(runId);
 
         } catch (Exception exception) {
 
-            fail(runId, exception);
+            fail(
+                    runId,
+                    exception
+            );
         }
     }
 
-    private void handleToolResult(String runId, ToolResult toolResult) {
+    private void handleToolResult(
+            String runId,
+            ToolResult toolResult) {
 
-        if (toolResult == null) return;
+        if (toolResult == null) {
 
-        AgentEvent.AgentEventBuilder builder = AgentEvent.builder()
-                .runId(runId)
-                .toolCallId(toolResult.getToolCallId())
-                .toolName(toolResult.getToolName())
-                .message(resolveToolMessage(toolResult))
-                .data(toolResult.hasData() ? toolResult.getData() : null);
+            return;
+        }
 
-        if (toolResult.hasError()) {
+        AgentEventType type =
+                toolResult.hasError()
+                        ? AgentEventType.TOOL_FAILED
+                        : AgentEventType.TOOL_COMPLETED;
 
-            builder.type(
-                    AgentEventType.TOOL_FAILED
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(type)
+                        .message(
+                                resolveToolMessage(
+                                        toolResult
+                                )
+                        )
+                        .toolCallId(
+                                toolResult.getToolCallId()
+                        )
+                        .toolName(
+                                toolResult.getToolName()
+                        )
+                        .data(
+                                toolResult.hasData()
+                                        ? toolResult.getData()
+                                        : null
+                        )
+                        .build()
+        );
+
+        if (isApprovalRequired(
+                toolResult
+        )) {
+
+            PendingApprovalRunHolder.add(
+                    runId
             );
 
-        } else {
+            System.out.println(
+                    "[GomsBook AI API] Approval Tool Result"
+                            + " | runId="
+                            + runId
+                            + " | toolName="
+                            + toolResult.getToolName()
+                            + " | approvalId="
+                            + getDataString(
+                                    toolResult,
+                                    "approvalId"
+                            )
+            );
+        }
+    }
 
-            builder.type(
-                    AgentEventType.TOOL_COMPLETED
+    private boolean isApprovalRequired(
+            ToolResult toolResult) {
+
+        if (toolResult == null
+                || !toolResult.hasData()
+                || toolResult.getData() == null) {
+
+            return false;
+        }
+
+        Object value =
+                toolResult
+                        .getData()
+                        .get(
+                                "approvalRequired"
+                        );
+
+        if (value instanceof Boolean) {
+
+            return ((Boolean) value)
+                    .booleanValue();
+        }
+
+        return value != null
+                && Boolean.parseBoolean(
+                        String.valueOf(
+                                value
+                        )
+                );
+    }
+
+    private boolean hasPendingApproval(
+            String runId) {
+
+        return PendingApprovalRunHolder
+                .contains(
+                        runId
+                );
+    }
+
+    private void executeApprovedAction(
+            AgentApproval approval) {
+
+        try {
+
+            send(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.TOOL_STARTED
+                            )
+                            .message(
+                                    approval.getFileName()
+                                            + " 생성을 시작합니다."
+                            )
+                            .toolName(
+                                    approval.getAction()
+                            )
+                            .approvalId(
+                                    approval.getApprovalId()
+                            )
+                            .title(
+                                    approval.getTitle()
+                            )
+                            .fileName(
+                                    approval.getFileName()
+                            )
+                            .build()
+            );
+
+            approvalExecutor.execute(
+                    approval
+            );
+
+            send(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.TOOL_COMPLETED
+                            )
+                            .message(
+                                    approval.getFileName()
+                                            + " 생성이 완료되었습니다."
+                            )
+                            .toolName(
+                                    approval.getAction()
+                            )
+                            .approvalId(
+                                    approval.getApprovalId()
+                            )
+                            .title(
+                                    approval.getTitle()
+                            )
+                            .fileName(
+                                    approval.getFileName()
+                            )
+                            .build()
+            );
+
+            send(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.ASSISTANT_MESSAGE
+                            )
+                            .message(
+                                    approval.getFileName()
+                                            + "을 생성했습니다."
+                            )
+                            .build()
+            );
+
+            send(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.AGENT_COMPLETED
+                            )
+                            .build()
+            );
+
+            complete(
+                    approval.getRunId()
+            );
+
+        } catch (Exception exception) {
+
+            fail(
+                    approval.getRunId(),
+                    exception
+            );
+        }
+    }
+
+    private void validateRun(
+            String runId,
+            AgentApproval approval) {
+
+        if (runId == null
+                || runId.isBlank()) {
+
+            throw new IllegalArgumentException(
+                    "runId must not be blank."
             );
         }
 
-        sendSafely(
-                builder.build()
+        if (approval == null) {
+
+            throw new IllegalArgumentException(
+                    "approval must not be null."
+            );
+        }
+
+        if (!runId.equals(
+                approval.getRunId()
+        )) {
+
+            throw new IllegalArgumentException(
+                    "Approval run ID does not match."
+                            + " requestRunId="
+                            + runId
+                            + ", approvalRunId="
+                            + approval.getRunId()
+            );
+        }
+
+        System.out.println(
+                "[GomsBook AI API] Approval Run Validation"
+                        + " | status=VALID"
+                        + " | runId="
+                        + runId
+                        + " | approvalId="
+                        + approval.getApprovalId()
         );
     }
 
-    private String resolveToolMessage(ToolResult toolResult) {
+    private String resolveToolMessage(
+            ToolResult toolResult) {
 
-        if (toolResult.hasMessage()) return toolResult.getMessage();
+        if (toolResult.hasMessage()) {
+
+            return toolResult.getMessage();
+        }
 
         if (toolResult.hasError()) {
 
-            String errorMessage = toolResult.getErrorMessage();
+            String errorMessage =
+                    toolResult.getErrorMessage();
 
-            if (errorMessage != null && !errorMessage.isBlank()) return errorMessage;
+            if (errorMessage != null
+                    && !errorMessage.isBlank()) {
+
+                return errorMessage;
+            }
 
             return "도구 실행에 실패했습니다.";
         }
@@ -208,157 +559,45 @@ public class AgentRunService {
         return "도구 실행이 정상적으로 완료되었습니다.";
     }
 
-    private void requestAuthorApproval(String runId) throws IOException {
+    private String getDataString(
+            ToolResult toolResult,
+            String name) {
 
-        String approvalId = UUID.randomUUID().toString();
+        if (toolResult == null
+                || !toolResult.hasData()
+                || toolResult.getData() == null) {
 
-        String fileName = "author.xhtml";
+            return null;
+        }
 
-        String content = createMockAuthorXhtml();
+        Object value =
+                toolResult
+                        .getData()
+                        .get(name);
 
-        PendingApproval approval = new PendingApproval(
-                approvalId,
-                runId,
-                "CREATE_EPUB_AUTHOR",
-                fileName,
-                content
-        );
+        return value == null
+                ? null
+                : String.valueOf(
+                        value
+                );
+    }
 
-        pendingApprovals.put(approvalId, approval);
+    private void send(
+            AgentEvent event) {
 
-        send(
-                AgentEvent.builder()
-                        .runId(runId)
-                        .type(AgentEventType.APPROVAL_REQUIRED)
-                        .message("다음 내용으로 author.xhtml을 생성하시겠습니까?")
-                        .approvalId(approvalId)
-                        .title("author.xhtml 생성")
-                        .fileName(fileName)
-                        .content(content)
-                        .build()
+        sseDispatcher.send(
+                event
         );
     }
 
-    private void executeApprovedAction(PendingApproval approval) {
+    private void sendSafely(
+            AgentEvent event) {
 
         try {
-
-            if ("CREATE_EPUB_AUTHOR".equals(approval.action)) executeCreateAuthor(approval);
 
             send(
-                    AgentEvent.builder()
-                            .runId(approval.runId)
-                            .type(AgentEventType.AGENT_COMPLETED)
-                            .build()
+                    event
             );
-
-            complete(approval.runId);
-
-        } catch (Exception exception) {
-
-            fail(approval.runId, exception);
-        }
-    }
-
-    private void executeCreateAuthor(PendingApproval approval) throws IOException {
-
-        send(
-                AgentEvent.builder()
-                        .runId(approval.runId)
-                        .type(AgentEventType.TOOL_STARTED)
-                        .message(approval.fileName + " 생성을 시작합니다.")
-                        .toolName("generate_epub_author")
-                        .build()
-        );
-
-        /*
-         * 현재 승인 실행은 Mock 단계입니다.
-         * Core EPUB Tool 이관 후 AgentEngineBridge.executeApproved()로 연결합니다.
-         */
-
-        sleep(500);
-
-        send(
-                AgentEvent.builder()
-                        .runId(approval.runId)
-                        .type(AgentEventType.TOOL_COMPLETED)
-                        .message(approval.fileName + " 생성이 완료되었습니다.")
-                        .toolName("generate_epub_author")
-                        .build()
-        );
-
-        send(
-                AgentEvent.builder()
-                        .runId(approval.runId)
-                        .type(AgentEventType.ASSISTANT_MESSAGE)
-                        .message(approval.fileName + "을 생성했습니다.")
-                        .build()
-        );
-    }
-
-    private PendingApproval findPendingApproval(String runId, String approvalId) {
-
-        if (approvalId == null || approvalId.isBlank()) throw new IllegalArgumentException("approvalId must not be blank");
-
-        PendingApproval approval = pendingApprovals.get(approvalId);
-
-        if (approval == null) throw new IllegalArgumentException("Pending approval was not found: " + approvalId);
-
-        if (!approval.runId.equals(runId)) throw new IllegalArgumentException("Approval run ID does not match: " + runId);
-
-        return approval;
-    }
-
-    private boolean isAuthorGenerationRequest(String message) {
-
-        if (message == null) return false;
-
-        String normalized = message.toLowerCase();
-
-        return normalized.contains("author.xhtml") || normalized.contains("작가소개") || normalized.contains("작가 소개");
-    }
-
-    private String createMockAuthorXhtml() {
-
-        return """
-                <?xml version="1.0" encoding="UTF-8"?>
-                <!DOCTYPE html>
-                <html xmlns="http://www.w3.org/1999/xhtml"
-                      xmlns:epub="http://www.idpf.org/2007/ops"
-                      lang="ko"
-                      xml:lang="ko">
-                <head>
-                    <meta charset="UTF-8"/>
-                    <title>작가 소개</title>
-                </head>
-                <body>
-                    <section epub:type="bio" aria-labelledby="author-title">
-                        <h1 id="author-title">작가 소개</h1>
-                        <p>작가 소개 내용입니다.</p>
-                    </section>
-                </body>
-                </html>
-                """;
-    }
-
-    private void send(AgentEvent event) throws IOException {
-
-        SseEmitter emitter = emitters.get(event.getRunId());
-
-        if (emitter == null) throw new IllegalStateException("SSE emitter was not found: " + event.getRunId());
-
-        emitter.send(
-                SseEmitter.event()
-                        .name("message")
-                        .data(event)
-        );
-    }
-
-    private void sendSafely(AgentEvent event) {
-
-        try {
-
-            send(event);
 
         } catch (Exception exception) {
 
@@ -369,97 +608,99 @@ public class AgentRunService {
         }
     }
 
-    private void fail(String runId, Exception exception) {
+    private void fail(
+            String runId,
+            Exception exception) {
 
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
-                        .type(AgentEventType.AGENT_FAILED)
-                        .message(resolveErrorMessage(exception))
+                        .type(
+                                AgentEventType.AGENT_FAILED
+                        )
+                        .message(
+                                resolveErrorMessage(
+                                        exception
+                                )
+                        )
                         .build()
         );
 
-        complete(runId);
-    }
-
-    private String resolveErrorMessage(Exception exception) {
-
-        if (exception == null) return "Agent 실행 중 오류가 발생했습니다.";
-
-        String message = exception.getMessage();
-
-        return message == null || message.isBlank() ? "Agent 실행 중 오류가 발생했습니다." : message;
-    }
-
-    private void complete(String runId) {
-
-        SseEmitter emitter = emitters.remove(runId);
-
-        if (emitter != null) emitter.complete();
-
-        pendingRuns.remove(runId);
-
-        pendingApprovals.entrySet().removeIf(
-                entry -> entry.getValue().runId.equals(runId)
+        complete(
+                runId
         );
     }
 
-    private void cleanup(String runId) {
+    private String resolveErrorMessage(
+            Exception exception) {
 
-        emitters.remove(runId);
+        if (exception == null) {
 
-        pendingRuns.remove(runId);
+            return "Agent 실행 중 오류가 발생했습니다.";
+        }
 
-        pendingApprovals.entrySet().removeIf(
-                entry -> entry.getValue().runId.equals(runId)
+        String message =
+                exception.getMessage();
+
+        return message == null
+                || message.isBlank()
+                        ? "Agent 실행 중 오류가 발생했습니다."
+                        : message;
+    }
+
+    private void complete(
+            String runId) {
+
+        sseDispatcher.complete(
+                runId
+        );
+
+        pendingRuns.remove(
+                runId
+        );
+
+        PendingApprovalRunHolder.remove(
+                runId
         );
     }
 
-    private void sleep(long milliseconds) {
+    private static final class PendingApprovalRunHolder {
 
-        try {
+        private static final Map<String, Boolean> RUNS =
+                new ConcurrentHashMap<>();
 
-            Thread.sleep(milliseconds);
+        private PendingApprovalRunHolder() {
+        }
 
-        } catch (InterruptedException exception) {
+        private static void add(
+                String runId) {
 
-            Thread.currentThread().interrupt();
+            if (runId == null
+                    || runId.isBlank()) {
 
-            throw new IllegalStateException(
-                    "Agent execution was interrupted.",
-                    exception
+                return;
+            }
+
+            RUNS.put(
+                    runId,
+                    Boolean.TRUE
             );
         }
-    }
 
-    private static class PendingApproval {
+        private static boolean contains(
+                String runId) {
 
-        private final String approvalId;
+            return RUNS.containsKey(
+                    runId
+            );
+        }
 
-        private final String runId;
+        private static void remove(
+                String runId) {
 
-        private final String action;
-
-        private final String fileName;
-
-        private final String content;
-
-        private PendingApproval(
-                String approvalId,
-                String runId,
-                String action,
-                String fileName,
-                String content) {
-
-            this.approvalId = approvalId;
-
-            this.runId = runId;
-
-            this.action = action;
-
-            this.fileName = fileName;
-
-            this.content = content;
+            RUNS.remove(
+                    runId
+            );
         }
     }
 }

@@ -88,21 +88,40 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
                 .build();
     }
 
-    
-    private AgentToolResultListener createToolResultListener(String runId, Consumer<ToolResult> toolResultConsumer) {
+    private AgentToolResultListener createToolResultListener(
+            String runId,
+            Consumer<ToolResult> toolResultConsumer) {
 
-        if (toolResultConsumer == null) return null;
+        if (toolResultConsumer == null) {
+
+            return null;
+        }
 
         return result -> {
 
-            if (result == null) return;
+            if (result == null) {
 
-            if (!runId.equals(result.getRequestId())) return;
+                return;
+            }
 
-            toolResultConsumer.accept(result);
+            String requestId =
+                    result.getRequestId();
+
+            if (requestId != null
+                    && !requestId.isBlank()
+                    && !runId.equals(
+                            requestId
+                    )) {
+
+                return;
+            }
+
+            toolResultConsumer.accept(
+                    result
+            );
         };
     }
-
+    
     private static void validateResponse(AgentResponse response) {
 
         if (response == null) throw new IllegalStateException("Agent returned null response.");

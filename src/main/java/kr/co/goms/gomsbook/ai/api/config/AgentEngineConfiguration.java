@@ -33,6 +33,17 @@ import kr.co.goms.gomsbook.ai.tool.ToolDefinitionProvider;
 import kr.co.goms.gomsbook.ai.tool.ToolExecutor;
 import kr.co.goms.gomsbook.ai.tool.ToolRegistry;
 
+import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalService;
+import kr.co.goms.gomsbook.ai.agent.approval.DefaultAgentApprovalService;
+import kr.co.goms.gomsbook.ai.agent.event.DefaultAgentEventPublisher;
+import kr.co.goms.gomsbook.ai.agent.event.AgentEventPublisher;
+import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
+import kr.co.goms.gomsbook.ai.api.agent.sse.SseAgentEventListener;
+
+import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalExecutor;
+import kr.co.goms.gomsbook.ai.agent.approval.DefaultAgentApprovalExecutor;
+
+
 @Configuration
 public class AgentEngineConfiguration {
 
@@ -103,8 +114,11 @@ public class AgentEngineConfiguration {
     }
 
     @Bean
-    public AgentToolRegistrar agentToolRegistrar(CurrentProjectProvider currentProjectProvider, PublishDirectoryProvider publishDirectoryProvider, EpubCheckValidator epubCheckValidator, AccessibilityValidator accessibilityValidator) {
-        return new DefaultAgentToolRegistrar(currentProjectProvider, publishDirectoryProvider, epubCheckValidator, accessibilityValidator);
+    public AgentToolRegistrar agentToolRegistrar(CurrentProjectProvider currentProjectProvider, PublishDirectoryProvider publishDirectoryProvider, EpubCheckValidator epubCheckValidator, 
+    		AccessibilityValidator accessibilityValidator,
+    		AgentApprovalService approvalService,
+            AgentEventPublisher eventPublisher) {
+        return new DefaultAgentToolRegistrar(currentProjectProvider, publishDirectoryProvider, epubCheckValidator, accessibilityValidator, approvalService, eventPublisher);
     }
 
     @Bean
@@ -134,4 +148,36 @@ public class AgentEngineConfiguration {
     public AgentExecutor agentExecutor(LlmClient llmClient, ToolExecutor toolExecutor, ToolDefinitionProvider toolDefinitionProvider, ChatModelProvider chatModelProvider) {
         return new DefaultAgentExecutor(llmClient, toolExecutor, toolDefinitionProvider, chatModelProvider);
     }
+    
+    @Bean
+    public AgentApprovalService agentApprovalService() {
+
+        return new DefaultAgentApprovalService();
+    }
+
+    @Bean
+    public AgentApprovalExecutor agentApprovalExecutor(
+            CurrentProjectProvider currentProjectProvider) {
+
+        return new DefaultAgentApprovalExecutor(
+                currentProjectProvider
+        );
+    }
+    
+    @Bean
+    public DefaultAgentEventPublisher agentEventPublisher(
+            AgentSseEventDispatcher dispatcher) {
+
+        DefaultAgentEventPublisher publisher =
+                new DefaultAgentEventPublisher();
+
+        publisher.addListener(
+                new SseAgentEventListener(
+                        dispatcher
+                )
+        );
+
+        return publisher;
+    }
+
 }
