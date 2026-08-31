@@ -532,6 +532,34 @@ public class AgentRunService {
 
         } catch (Exception exception) {
 
+        	 sendSafely(
+                     AgentEvent.builder()
+                             .runId(
+                                     approval.getRunId()
+                             )
+                             .type(
+                                     AgentEventType.TOOL_FAILED
+                             )
+                             .message(
+                                     resolveErrorMessage(
+                                             exception
+                                     )
+                             )
+                             .toolName(
+                                     approval.getAction()
+                             )
+                             .approvalId(
+                                     approval.getApprovalId()
+                             )
+                             .title(
+                                     approval.getTitle()
+                             )
+                             .fileName(
+                                     approval.getFileName()
+                             )
+                             .build()
+             );
+        	 
             fail(
                     approval.getRunId(),
                     exception
