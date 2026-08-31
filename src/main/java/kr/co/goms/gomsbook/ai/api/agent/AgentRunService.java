@@ -67,18 +67,11 @@ public class AgentRunService {
         return runId;
     }
 
-    public SseEmitter subscribe(
-            String runId) {
+    public SseEmitter subscribe(String runId) {
 
-        SseEmitter emitter =
-                sseDispatcher.subscribe(
-                        runId
-                );
+        SseEmitter emitter = sseDispatcher.subscribe(runId);
 
-        String message =
-                pendingRuns.remove(
-                        runId
-                );
+        String message = pendingRuns.remove(runId);
 
         if (message != null) {
 
@@ -93,23 +86,13 @@ public class AgentRunService {
         return emitter;
     }
 
-    public void approve(
-            String runId,
-            String approvalId) {
+    public void approve( String runId, String approvalId) {
 
-        AgentApproval approval =
-                approvalService.get(
-                        approvalId
-                );
+        AgentApproval approval = approvalService.get(approvalId);
 
-        validateRun(
-                runId,
-                approval
-        );
+        validateRun( runId, approval);
 
-        approvalService.approve(
-                approvalId
-        );
+        approvalService.approve(approvalId);
 
         sendSafely(
                 AgentEvent.builder()
@@ -327,27 +310,91 @@ public class AgentRunService {
                         .build()
         );
 
-        if (isApprovalRequired(
+        if (!isApprovalRequired(
                 toolResult
         )) {
 
-            PendingApprovalRunHolder.add(
-                    runId
-            );
+            return;
+        }
 
-            System.out.println(
-                    "[GomsBook AI API] Approval Tool Result"
-                            + " | runId="
-                            + runId
-                            + " | toolName="
-                            + toolResult.getToolName()
-                            + " | approvalId="
-                            + getDataString(
-                                    toolResult,
-                                    "approvalId"
-                            )
+        String approvalId =
+                getDataString(
+                        toolResult,
+                        "approvalId"
+                );
+
+        String title =
+                getDataString(
+                        toolResult,
+                        "title"
+                );
+
+        String message =
+                getDataString(
+                        toolResult,
+                        "message"
+                );
+
+        String fileName =
+                getDataString(
+                        toolResult,
+                        "fileName"
+                );
+
+        String content =
+                getDataString(
+                        toolResult,
+                        "content"
+                );
+
+        if (approvalId == null
+                || approvalId.isBlank()) {
+
+            throw new IllegalStateException(
+                    "Approval ToolResult에 approvalId가 없습니다."
             );
         }
+
+        PendingApprovalRunHolder.add(
+                runId
+        );
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(
+                                AgentEventType.APPROVAL_REQUIRED
+                        )
+                        .message(message)
+                        .toolName(
+                                toolResult.getToolName()
+                        )
+                        .approvalId(
+                                approvalId
+                        )
+                        .title(
+                                title
+                        )
+                        .fileName(
+                                fileName
+                        )
+                        .content(
+                                content
+                        )
+                        .build()
+        );
+
+        System.out.println(
+                "[GomsBook AI API] Approval Required"
+                        + " | runId="
+                        + runId
+                        + " | toolName="
+                        + toolResult.getToolName()
+                        + " | approvalId="
+                        + approvalId
+                        + " | fileName="
+                        + fileName
+        );
     }
 
     private boolean isApprovalRequired(

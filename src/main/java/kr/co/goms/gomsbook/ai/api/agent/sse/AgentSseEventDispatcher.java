@@ -8,6 +8,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import kr.co.goms.gomsbook.ai.api.agent.AgentEvent;
+import kr.co.goms.gomsbook.ai.api.agent.AgentEventType;
 
 @Component
 public class AgentSseEventDispatcher {
@@ -96,7 +97,6 @@ public class AgentSseEventDispatcher {
             AgentEvent event) {
 
         if (event == null) {
-
             return;
         }
 
@@ -114,6 +114,39 @@ public class AgentSseEventDispatcher {
             );
 
             return;
+        }
+
+        /*
+         * 임시 디버깅
+         */
+        if (event.getType()
+                == AgentEventType.APPROVAL_REQUIRED) {
+
+            System.out.println(
+                    "[GomsBook AI API] APPROVAL_REQUIRED SEND"
+                            + " | runId="
+                            + event.getRunId()
+                            + " | approvalId="
+                            + event.getApprovalId()
+                            + " | toolName="
+                            + event.getToolName()
+                            + " | title="
+                            + event.getTitle()
+                            + " | fileName="
+                            + event.getFileName()
+            );
+
+            StackTraceElement[] stackTrace =
+                    Thread.currentThread()
+                            .getStackTrace();
+
+            for (StackTraceElement element : stackTrace) {
+
+                System.out.println(
+                        "    at "
+                                + element
+                );
+            }
         }
 
         SseEmitter emitter =
@@ -165,7 +198,6 @@ public class AgentSseEventDispatcher {
             );
         }
     }
-
     public void complete(
             String runId) {
 

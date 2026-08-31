@@ -29,6 +29,11 @@ public final class SseAgentEventListener
             return;
         }
 
+        if (event.getType() == kr.co.goms.gomsbook.ai.agent.event.AgentEventType.APPROVAL_REQUIRED) {
+
+            return;
+        }
+        
         System.out.println(
                 "[GomsBook AI API] Core Agent Event"
                         + " | runId="
