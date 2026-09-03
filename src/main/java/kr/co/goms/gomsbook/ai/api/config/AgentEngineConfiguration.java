@@ -11,6 +11,10 @@ import kr.co.goms.gomsbook.ai.accessibility.validation.AccessibilityValidator;
 import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultAccessibilityValidator;
 import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.DefaultAgentExecutor;
+import kr.co.goms.gomsbook.ai.epub.project.plan.CreateEpubProjectPlanService;
+import kr.co.goms.gomsbook.ai.epub.project.plan.CreateEpubProjectPlanStore;
+import kr.co.goms.gomsbook.ai.epub.project.plan.DefaultCreateEpubProjectPlanService;
+import kr.co.goms.gomsbook.ai.epub.project.plan.InMemoryCreateEpubProjectPlanStore;
 import kr.co.goms.gomsbook.ai.epub.service.EpubCheckRunner;
 import kr.co.goms.gomsbook.ai.epub.service.PublishDirectoryProvider;
 import kr.co.goms.gomsbook.ai.epub.validation.EpubCheckRunnerValidator;
@@ -114,11 +118,29 @@ public class AgentEngineConfiguration {
     }
 
     @Bean
+    public CreateEpubProjectPlanStore createEpubProjectPlanStore() {
+        return new InMemoryCreateEpubProjectPlanStore();
+    }
+
+
+    @Bean
+    public CreateEpubProjectPlanService createEpubProjectPlanService(
+            CreateEpubProjectPlanStore createEpubProjectPlanStore) {
+        return new DefaultCreateEpubProjectPlanService(
+                createEpubProjectPlanStore);
+    }
+    
+    @Bean
     public AgentToolRegistrar agentToolRegistrar(CurrentProjectProvider currentProjectProvider, PublishDirectoryProvider publishDirectoryProvider, EpubCheckValidator epubCheckValidator, 
     		AccessibilityValidator accessibilityValidator,
     		AgentApprovalService approvalService,
-            AgentEventPublisher eventPublisher) {
-        return new DefaultAgentToolRegistrar(currentProjectProvider, publishDirectoryProvider, epubCheckValidator, accessibilityValidator, approvalService, eventPublisher);
+            AgentEventPublisher eventPublisher,
+            CreateEpubProjectPlanService createEpubProjectPlanService) {
+    	
+        Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");    	
+    	
+        return new DefaultAgentToolRegistrar(currentProjectProvider, publishDirectoryProvider, epubCheckValidator, accessibilityValidator, approvalService, eventPublisher,
+        		createEpubProjectPlanService, epubProjectsRoot);
     }
 
     @Bean
@@ -157,11 +179,14 @@ public class AgentEngineConfiguration {
 
     @Bean
     public AgentApprovalExecutor agentApprovalExecutor(
-            CurrentProjectProvider currentProjectProvider) {
+            CurrentProjectProvider currentProjectProvider,
+            CreateEpubProjectPlanService createEpubProjectPlanService,
+            ToolExecutor toolExecutor) {
 
         return new DefaultAgentApprovalExecutor(
-                currentProjectProvider
-        );
+                currentProjectProvider,
+                createEpubProjectPlanService,
+                toolExecutor);
     }
     
     @Bean
