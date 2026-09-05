@@ -42,9 +42,6 @@ GomsBook-AI-API
  4)확인
 curl -i -X POST http://localhost:2626/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"현재 프로젝트 정보를 알려주세요\"}"
 
-
-
-
 curl -X POST http://localhost:5001/api/agent/runs -H "Content-Type: application/json" -d "{\"message\":\"chapter10_11.xhtml 만들어주세요\"}"
 
 curl -i -N http://localhost:5001/api/agent/runs/5b904f7e-5b1a-43c3-bd65-57596b5cbdb1/events

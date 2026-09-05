@@ -198,21 +198,39 @@ public class AgentSseEventDispatcher {
             );
         }
     }
-    public void complete(
-            String runId) {
 
-        SseEmitter emitter =
-                emitters.remove(
-                        runId
-                );
+    public void complete(String runId) {
+
+        System.out.println("[GomsBook AI API] SSE complete requested | runId=" + runId);
+
+        /*
+        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
+
+        for (StackTraceElement element : stackTrace) {
+
+            System.out.println("    at " + element);
+        }
+        */
+
+        SseEmitter emitter = emitters.remove(runId);
 
         if (emitter == null) {
+
+            System.out.println(
+                    "[GomsBook AI API] SSE complete skipped"
+                            + " | reason=emitter not found"
+                            + " | runId="
+                            + runId
+            );
 
             return;
         }
 
         emitter.complete();
+
+        System.out.println("[GomsBook AI API] SSE completed | runId=" + runId);
     }
+    
 
     private void remove(
             String runId,

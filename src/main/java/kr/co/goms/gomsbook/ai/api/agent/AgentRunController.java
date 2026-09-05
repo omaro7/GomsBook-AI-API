@@ -23,8 +23,18 @@ public class AgentRunController {
 
     @PostMapping
     public ResponseEntity<Map<String, String>> run(@RequestBody AgentRunRequest request) {
-        String runId = agentRunService.run(request.getMessage());
-        return ResponseEntity.ok(Map.of("runId", runId));
+
+        String runId = agentRunService.run(
+                request.getProjectId(),
+                request.getMessage()
+        );
+
+        return ResponseEntity.ok(
+                Map.of(
+                        "runId",
+                        runId
+                )
+        );
     }
 
     @GetMapping("/{runId}/events")

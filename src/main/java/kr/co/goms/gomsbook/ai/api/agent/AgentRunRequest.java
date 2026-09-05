@@ -9,7 +9,10 @@ import lombok.Setter;
 @Setter
 public class AgentRunRequest {
 
+	@NotBlank(message = "projectId must not be blank")
+	private String projectId;
+	
     @NotBlank(message = "message must not be blank")
     private String message;
-
+    
 }

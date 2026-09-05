@@ -39,12 +39,13 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
     }
 
     @Override
-    public String generate(String runId, String message, Consumer<ToolResult> toolResultConsumer) {
+    public String generate(String runId, String projectId, String message, Consumer<ToolResult> toolResultConsumer) {
 
         requireText(runId, "runId");
+        requireText(projectId, "projectId");
         requireText(message, "message");
 
-        AgentRequest request = createRequest(runId, message);
+        AgentRequest request = createRequest(runId, projectId, message);
 
         AgentToolResultListener listener = createToolResultListener(runId, toolResultConsumer);
 
@@ -77,17 +78,19 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
     }
 
 
-    private AgentRequest createRequest(String runId, String message) {
+    private AgentRequest createRequest(String runId, String projectId, String message) {
 
         return AgentRequest.builder()
                 .requestId(runId)
                 .sessionId(runId)
+                .attribute("runId", runId)
+                .attribute("projectId", projectId)
                 .instruction(message)
                 .toolCallingEnabled(true)
                 .validationEnabled(true)
                 .build();
     }
-
+    
     private AgentToolResultListener createToolResultListener(
             String runId,
             Consumer<ToolResult> toolResultConsumer) {

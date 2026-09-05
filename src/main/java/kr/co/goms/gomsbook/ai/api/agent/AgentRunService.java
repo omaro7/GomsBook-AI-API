@@ -27,12 +27,13 @@ public class AgentRunService {
 
     private final AgentApprovalExecutor approvalExecutor;
 
-    private final Map<String, String> pendingRuns =
-            new ConcurrentHashMap<>();
+    private final Map<String, PendingAgentRun> pendingRuns = new ConcurrentHashMap<>();
 
-    private final ExecutorService executor =
-            Executors.newCachedThreadPool();
+    private final Map<String, Boolean> activeRuns = new ConcurrentHashMap<>();
 
+    private final ExecutorService executor = Executors.newCachedThreadPool();
+    
+    
     public AgentRunService(
             AgentEngineBridge agentEngineBridge,
             AgentSseEventDispatcher sseDispatcher,
@@ -52,33 +53,42 @@ public class AgentRunService {
                 approvalExecutor;
     }
 
-    public String run(
-            String message) {
+    public String run(String projectId, String message) {
 
-        String runId =
-                UUID.randomUUID()
-                        .toString();
+        if (projectId == null || projectId.isBlank()) throw new IllegalArgumentException("projectId must not be blank.");
+        if (message == null || message.isBlank()) throw new IllegalArgumentException("message must not be blank.");
+
+        String runId = UUID.randomUUID().toString();
 
         pendingRuns.put(
                 runId,
-                message
+                new PendingAgentRun(
+                        projectId.trim(),
+                        message.trim()
+                )
+        );
+
+        activeRuns.put(
+                runId,
+                Boolean.TRUE
         );
 
         return runId;
     }
 
+    // TODO projectId 정리할 것
     public SseEmitter subscribe(String runId) {
 
         SseEmitter emitter = sseDispatcher.subscribe(runId);
 
-        String message = pendingRuns.remove(runId);
-
-        if (message != null) {
-
+        PendingAgentRun pendingRun = pendingRuns.remove(runId);
+        
+        if (pendingRun != null) {
             executor.submit(
                     () -> executeAgent(
                             runId,
-                            message
+                            pendingRun.projectId(),
+                            pendingRun.message()
                     )
             );
         }
@@ -161,6 +171,11 @@ public class AgentRunService {
                         .build()
         );
 
+        PendingApprovalRunHolder.remove(
+                runId,
+                approvalId
+        );
+
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
@@ -174,22 +189,14 @@ public class AgentRunService {
                         .build()
         );
 
-        sendSafely(
-                AgentEvent.builder()
-                        .runId(runId)
-                        .type(
-                                AgentEventType.AGENT_COMPLETED
-                        )
-                        .build()
-        );
-
-        complete(
+        completeIfNoPendingApproval(
                 runId
         );
     }
 
     private void executeAgent(
             String runId,
+            String projectId,
             String message) {
 
         try {
@@ -209,6 +216,7 @@ public class AgentRunService {
             String response =
                     agentEngineBridge.generate(
                             runId,
+                            projectId,
                             message,
                             toolResult -> handleToolResult(
                                     runId,
@@ -251,16 +259,7 @@ public class AgentRunService {
                 return;
             }
 
-            send(
-                    AgentEvent.builder()
-                            .runId(runId)
-                            .type(
-                                    AgentEventType.AGENT_COMPLETED
-                            )
-                            .build()
-            );
-
-            complete(
+            completeRun(
                     runId
             );
 
@@ -356,7 +355,8 @@ public class AgentRunService {
         }
 
         PendingApprovalRunHolder.add(
-                runId
+                runId,
+                approvalId
         );
 
         sendSafely(
@@ -440,6 +440,9 @@ public class AgentRunService {
     private void executeApprovedAction(
             AgentApproval approval) {
 
+        ApprovalOperation operation = resolveApprovalOperation(approval);
+        String operationLabel = operation.getLabel();
+
         try {
 
             send(
@@ -452,7 +455,9 @@ public class AgentRunService {
                             )
                             .message(
                                     approval.getFileName()
-                                            + " 생성을 시작합니다."
+                                            + " "
+                                            + operationLabel
+                                            + "을 시작합니다."
                             )
                             .toolName(
                                     approval.getAction()
@@ -483,7 +488,9 @@ public class AgentRunService {
                             )
                             .message(
                                     approval.getFileName()
-                                            + " 생성이 완료되었습니다."
+                                            + " "
+                                            + operationLabel
+                                            + "이 완료되었습니다."
                             )
                             .toolName(
                                     approval.getAction()
@@ -509,64 +516,84 @@ public class AgentRunService {
                                     AgentEventType.ASSISTANT_MESSAGE
                             )
                             .message(
-                                    approval.getFileName()
-                                            + "을 생성했습니다."
+                                    createCompletionMessage(
+                                            approval,
+                                            operation
+                                    )
                             )
                             .build()
             );
 
-            send(
-                    AgentEvent.builder()
-                            .runId(
-                                    approval.getRunId()
-                            )
-                            .type(
-                                    AgentEventType.AGENT_COMPLETED
-                            )
-                            .build()
+            PendingApprovalRunHolder.remove(
+                    approval.getRunId(),
+                    approval.getApprovalId()
             );
 
-            complete(
+            completeIfNoPendingApproval(
                     approval.getRunId()
             );
 
         } catch (Exception exception) {
 
-        	 sendSafely(
-                     AgentEvent.builder()
-                             .runId(
-                                     approval.getRunId()
-                             )
-                             .type(
-                                     AgentEventType.TOOL_FAILED
-                             )
-                             .message(
-                                     resolveErrorMessage(
-                                             exception
-                                     )
-                             )
-                             .toolName(
-                                     approval.getAction()
-                             )
-                             .approvalId(
-                                     approval.getApprovalId()
-                             )
-                             .title(
-                                     approval.getTitle()
-                             )
-                             .fileName(
-                                     approval.getFileName()
-                             )
-                             .build()
-             );
-        	 
-            fail(
+            sendSafely(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.TOOL_FAILED
+                            )
+                            .message(
+                                    resolveErrorMessage(
+                                            exception
+                                    )
+                            )
+                            .toolName(
+                                    approval.getAction()
+                            )
+                            .approvalId(
+                                    approval.getApprovalId()
+                            )
+                            .title(
+                                    approval.getTitle()
+                            )
+                            .fileName(
+                                    approval.getFileName()
+                            )
+                            .build()
+            );
+
+            sendSafely(
+                    AgentEvent.builder()
+                            .runId(
+                                    approval.getRunId()
+                            )
+                            .type(
+                                    AgentEventType.ASSISTANT_MESSAGE
+                            )
+                            .message(
+                                    approval.getFileName()
+                                            + " "
+                                            + operationLabel
+                                            + "에 실패했습니다: "
+                                            + resolveErrorMessage(
+                                                    exception
+                                            )
+                            )
+                            .build()
+            );
+
+            PendingApprovalRunHolder.remove(
                     approval.getRunId(),
-                    exception
+                    approval.getApprovalId()
+            );
+
+            completeIfNoPendingApproval(
+                    approval.getRunId()
             );
         }
     }
-
+    
     private void validateRun(
             String runId,
             AgentApproval approval) {
@@ -687,6 +714,13 @@ public class AgentRunService {
             String runId,
             Exception exception) {
 
+        if (!markRunCompleted(
+                runId
+        )) {
+
+            return;
+        }
+
         sendSafely(
                 AgentEvent.builder()
                         .runId(runId)
@@ -701,7 +735,7 @@ public class AgentRunService {
                         .build()
         );
 
-        complete(
+        closeRun(
                 runId
         );
     }
@@ -723,7 +757,65 @@ public class AgentRunService {
                         : message;
     }
 
-    private void complete(
+    private void completeIfNoPendingApproval(
+            String runId) {
+
+        if (hasPendingApproval(
+                runId
+        )) {
+
+            System.out.println(
+                    "[GomsBook AI API] Agent still waiting for approval"
+                            + " | runId="
+                            + runId
+                            + " | pendingApprovalCount="
+                            + PendingApprovalRunHolder.count(
+                                    runId
+                            )
+            );
+
+            return;
+        }
+
+        completeRun(
+                runId
+        );
+    }
+
+    private void completeRun(
+            String runId) {
+
+        if (!markRunCompleted(
+                runId
+        )) {
+
+            return;
+        }
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(
+                                AgentEventType.AGENT_COMPLETED
+                        )
+                        .build()
+        );
+
+        closeRun(
+                runId
+        );
+    }
+
+    private boolean markRunCompleted(
+            String runId) {
+
+        return activeRuns.remove(
+                runId,
+                Boolean.TRUE
+        );
+    }
+
+    private void closeRun(
             String runId) {
 
         sseDispatcher.complete(
@@ -741,23 +833,29 @@ public class AgentRunService {
 
     private static final class PendingApprovalRunHolder {
 
-        private static final Map<String, Boolean> RUNS =
+        private static final Map<String, Map<String, Boolean>> RUNS =
                 new ConcurrentHashMap<>();
 
         private PendingApprovalRunHolder() {
         }
 
         private static void add(
-                String runId) {
+                String runId,
+                String approvalId) {
 
             if (runId == null
-                    || runId.isBlank()) {
+                    || runId.isBlank()
+                    || approvalId == null
+                    || approvalId.isBlank()) {
 
                 return;
             }
 
-            RUNS.put(
+            RUNS.computeIfAbsent(
                     runId,
+                    key -> new ConcurrentHashMap<>()
+            ).put(
+                    approvalId,
                     Boolean.TRUE
             );
         }
@@ -765,9 +863,52 @@ public class AgentRunService {
         private static boolean contains(
                 String runId) {
 
-            return RUNS.containsKey(
-                    runId
+            Map<String, Boolean> approvals =
+                    RUNS.get(
+                            runId
+                    );
+
+            return approvals != null
+                    && !approvals.isEmpty();
+        }
+
+        private static int count(
+                String runId) {
+
+            Map<String, Boolean> approvals =
+                    RUNS.get(
+                            runId
+                    );
+
+            return approvals == null
+                    ? 0
+                    : approvals.size();
+        }
+
+        private static void remove(
+                String runId,
+                String approvalId) {
+
+            Map<String, Boolean> approvals =
+                    RUNS.get(
+                            runId
+                    );
+
+            if (approvals == null) {
+                return;
+            }
+
+            approvals.remove(
+                    approvalId
             );
+
+            if (approvals.isEmpty()) {
+
+                RUNS.remove(
+                        runId,
+                        approvals
+                );
+            }
         }
 
         private static void remove(
@@ -777,5 +918,53 @@ public class AgentRunService {
                     runId
             );
         }
+    }
+    
+    // 내부 record 추가
+    private record PendingAgentRun( String projectId, String message) {
+    }
+    
+    private enum ApprovalOperation {
+
+        CREATE("생성"),
+        UPDATE("수정"),
+        DELETE("삭제"),
+        UNKNOWN("처리");
+
+        private final String label;
+
+        ApprovalOperation(String label) {
+            this.label = label;
+        }
+
+        private String getLabel() {
+            return label;
+        }
+    }
+
+    private ApprovalOperation resolveApprovalOperation(AgentApproval approval) {
+
+        if (approval == null || approval.getAction() == null) return ApprovalOperation.UNKNOWN;
+
+        String action = approval.getAction().trim().toLowerCase();
+
+        if (action.contains("create_")) return ApprovalOperation.CREATE;
+        if (action.contains("update_")) return ApprovalOperation.UPDATE;
+        if (action.contains("delete_")) return ApprovalOperation.DELETE;
+
+        return ApprovalOperation.UNKNOWN;
+    }
+    
+    private String createCompletionMessage(
+            AgentApproval approval,
+            ApprovalOperation operation) {
+
+        String fileName = approval.getFileName();
+
+        if (operation == ApprovalOperation.CREATE) return fileName + "을 생성했습니다.";
+        if (operation == ApprovalOperation.UPDATE) return fileName + "을 수정했습니다.";
+        if (operation == ApprovalOperation.DELETE) return fileName + "을 삭제했습니다.";
+
+        return fileName + " 작업을 완료했습니다.";
     }
 }
