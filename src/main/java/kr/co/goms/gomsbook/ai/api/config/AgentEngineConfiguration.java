@@ -11,6 +11,7 @@ import java.util.List;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.jdbc.core.JdbcTemplate;
 
 import kr.co.goms.gomsbook.ai.accessibility.validation.AccessibilityValidator;
 import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultAccessibilityValidator;
@@ -26,6 +27,7 @@ import kr.co.goms.gomsbook.ai.agent.approval.handler.ApplyEpubTemplateApprovalHa
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateBasicXhtmlApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubProjectApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.DeleteEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubCopyrightApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubCopyrightApprovalHandler;
@@ -33,6 +35,11 @@ import kr.co.goms.gomsbook.ai.agent.event.AgentEventPublisher;
 import kr.co.goms.gomsbook.ai.agent.event.DefaultAgentEventPublisher;
 import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
 import kr.co.goms.gomsbook.ai.api.agent.sse.SseAgentEventListener;
+import kr.co.goms.gomsbook.ai.conversation.repository.AiConversationMessageRepository;
+import kr.co.goms.gomsbook.ai.conversation.repository.AiConversationRepository;
+import kr.co.goms.gomsbook.ai.conversation.repository.jdbc.JdbcAiConversationMessageRepository;
+import kr.co.goms.gomsbook.ai.conversation.repository.jdbc.JdbcAiConversationRepository;
+import kr.co.goms.gomsbook.ai.conversation.service.ConversationService;
 import kr.co.goms.gomsbook.ai.epub.plan.project.CreateEpubProjectPlanService;
 import kr.co.goms.gomsbook.ai.epub.plan.project.CreateEpubProjectPlanStore;
 import kr.co.goms.gomsbook.ai.epub.plan.project.DefaultCreateEpubProjectPlanService;
@@ -64,6 +71,7 @@ import kr.co.goms.gomsbook.ai.tool.ToolDefinitionProvider;
 import kr.co.goms.gomsbook.ai.tool.ToolExecutor;
 import kr.co.goms.gomsbook.ai.tool.ToolRegistry;
 import kr.co.goms.gomsbook.ai.tool.epub.author.CreateEpubAuthorTool;
+import kr.co.goms.gomsbook.ai.tool.epub.author.DeleteEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.author.ReadEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.author.UpdateEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.copyright.CreateEpubCopyrightTool;
@@ -246,29 +254,20 @@ public class AgentEngineConfiguration {
     }
 
     @Bean
-    public EpubAuthorService epubAuthorService(
-            EpubAuthorXhtmlGenerator xhtmlGenerator,
-            EpubPackageUpdater packageUpdater,
-            EpubNavigationUpdater navigationUpdater) {
+    public EpubAuthorService epubAuthorService(EpubAuthorXhtmlGenerator xhtmlGenerator, EpubPackageUpdater packageUpdater, EpubNavigationUpdater navigationUpdater) {
 
-        return new EpubAuthorService(
-                xhtmlGenerator,
-                packageUpdater,
-                navigationUpdater);
+        return new EpubAuthorService(xhtmlGenerator, packageUpdater, navigationUpdater);
     }
 
     @Bean
-    public CreateEpubAuthorApprovalHandler createEpubAuthorApprovalHandler(
-            CurrentProjectProvider currentProjectProvider,
-            EpubAuthorService epubAuthorService) {
+    public CreateEpubAuthorApprovalHandler createEpubAuthorApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubAuthorService epubAuthorService) {
 
-        return new CreateEpubAuthorApprovalHandler(
-                currentProjectProvider,
-                epubAuthorService);
+        return new CreateEpubAuthorApprovalHandler(currentProjectProvider, epubAuthorService);
     }
     
     @Bean
     public ReadEpubAuthorTool readEpubAuthorTool(CurrentProjectProvider currentProjectProvider) {
+    	
         return new ReadEpubAuthorTool(currentProjectProvider);
     }
     
@@ -276,6 +275,12 @@ public class AgentEngineConfiguration {
     public UpdateEpubAuthorApprovalHandler updateEpubAuthorApprovalHandler(CurrentProjectProvider currentProjectProvider) {
 
         return new UpdateEpubAuthorApprovalHandler(currentProjectProvider);
+    }    
+    
+    @Bean
+    public DeleteEpubAuthorApprovalHandler deleteEpubAuthorApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubAuthorService epubAuthorService) {
+
+        return new DeleteEpubAuthorApprovalHandler(currentProjectProvider, epubAuthorService);
     }    
     
     
@@ -335,6 +340,30 @@ public class AgentEngineConfiguration {
         return new CreateEpubCopyrightApprovalHandler(currentProjectProvider);
     }
     
+    /*
+     * ============================================================
+     * Conversation
+     * ============================================================
+     */
+
+    @Bean
+    public AiConversationRepository aiConversationRepository(JdbcTemplate jdbcTemplate) {
+
+        return new JdbcAiConversationRepository(jdbcTemplate);
+    }
+
+    @Bean
+    public AiConversationMessageRepository aiConversationMessageRepository(JdbcTemplate jdbcTemplate) {
+
+        return new JdbcAiConversationMessageRepository(jdbcTemplate);
+    }
+
+    @Bean
+    public ConversationService conversationService(AiConversationRepository conversationRepository, AiConversationMessageRepository messageRepository) {
+
+        return new ConversationService(conversationRepository, messageRepository);
+    }
+    
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
             CreateBasicXhtmlApprovalHandler createBasicXhtmlApprovalHandler,
@@ -343,7 +372,8 @@ public class AgentEngineConfiguration {
             UpdateEpubCopyrightApprovalHandler updateEpubCopyrightApprovalHandler,
             CreateEpubCopyrightApprovalHandler createEpubCopyrightApprovalHandler,
             CreateEpubAuthorApprovalHandler createEpubAuthorApprovalHandler,
-            UpdateEpubAuthorApprovalHandler updateEpubAuthorApprovalHandler
+            UpdateEpubAuthorApprovalHandler updateEpubAuthorApprovalHandler,
+            DeleteEpubAuthorApprovalHandler deleteEpubAuthorApprovalHandler
             
             ) {
 
@@ -356,6 +386,7 @@ public class AgentEngineConfiguration {
         registry.register(CreateEpubCopyrightTool.TOOL_NAME, createEpubCopyrightApprovalHandler);
         registry.register(CreateEpubAuthorTool.TOOL_NAME, createEpubAuthorApprovalHandler);
         registry.register(UpdateEpubAuthorTool.TOOL_NAME, updateEpubAuthorApprovalHandler);
+        registry.register(DeleteEpubAuthorTool.TOOL_NAME, deleteEpubAuthorApprovalHandler);
 
         return registry;
     }

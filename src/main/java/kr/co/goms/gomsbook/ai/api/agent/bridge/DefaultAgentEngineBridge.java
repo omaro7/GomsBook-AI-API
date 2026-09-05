@@ -1,5 +1,6 @@
 package kr.co.goms.gomsbook.ai.api.agent.bridge;
 
+import java.util.List;
 import java.util.Objects;
 
 import org.springframework.stereotype.Component;
@@ -8,6 +9,9 @@ import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.AgentRequest;
 import kr.co.goms.gomsbook.ai.agent.AgentResponse;
 import kr.co.goms.gomsbook.ai.agent.AgentToolResultListener;
+import kr.co.goms.gomsbook.ai.conversation.model.AiConversationMessageRole;
+import kr.co.goms.gomsbook.ai.conversation.model.ConversationHistoryMessage;
+import kr.co.goms.gomsbook.ai.llm.LlmMessage;
 
 import java.util.function.Consumer;
 import kr.co.goms.gomsbook.ai.tool.ToolResult;
@@ -22,12 +26,13 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
     }
 
     @Override
-    public String generatePreview(String runId, String message) {
+    public String generatePreview(String runId, String conversationId, String message) {
 
         requireText(runId, "runId");
+        requireText(conversationId, "conversationId");
         requireText(message, "message");
 
-        AgentRequest request = AgentRequest.builder().requestId(runId).sessionId(runId).instruction(message).toolCallingEnabled(true).validationEnabled(true).build();
+        AgentRequest request = AgentRequest.builder().requestId(runId).sessionId(conversationId).instruction(message).toolCallingEnabled(true).validationEnabled(true).build();
 
         AgentResponse response = agentExecutor.execute(request);
 
@@ -39,13 +44,16 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
     }
 
     @Override
-    public String generate(String runId, String projectId, String message, Consumer<ToolResult> toolResultConsumer) {
+    public String generate(String runId, String projectId, String conversationId, List<ConversationHistoryMessage> _historyMessages, String message, Consumer<ToolResult> toolResultConsumer) {
 
         requireText(runId, "runId");
         requireText(projectId, "projectId");
+        requireText(conversationId, "conversationId");
         requireText(message, "message");
 
-        AgentRequest request = createRequest(runId, projectId, message);
+        List<LlmMessage> llmHistoryMessages = toLlmMessages(_historyMessages);
+        
+        AgentRequest request = createRequest(runId, projectId, conversationId, message, llmHistoryMessages);
 
         AgentToolResultListener listener = createToolResultListener(runId, toolResultConsumer);
 
@@ -77,15 +85,37 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
         throw new UnsupportedOperationException("Approved EPUB execution is not connected yet.");
     }
 
+    private List<LlmMessage> toLlmMessages(List<ConversationHistoryMessage> _historyMessages) {
 
-    private AgentRequest createRequest(String runId, String projectId, String message) {
+        if (_historyMessages == null || _historyMessages.isEmpty()) return List.of();
+
+        return _historyMessages.stream()
+                .map(this::toLlmMessage)
+                .filter(Objects::nonNull)
+                .toList();
+    }
+
+    private LlmMessage toLlmMessage(ConversationHistoryMessage message) {
+
+        if (message == null || message.content() == null || message.content().isBlank()) return null;
+
+        if (message.role() == AiConversationMessageRole.USER) return LlmMessage.user(message.content());
+        if (message.role() == AiConversationMessageRole.ASSISTANT) return LlmMessage.assistant(message.content());
+
+        return null;
+    }
+    
+
+    private AgentRequest createRequest(String runId, String projectId, String conversationId, String message, List<LlmMessage> llmHistoryMessages) {
 
         return AgentRequest.builder()
                 .requestId(runId)
-                .sessionId(runId)
+                .sessionId(conversationId)
                 .attribute("runId", runId)
                 .attribute("projectId", projectId)
+                .attribute("conversationId", conversationId)
                 .instruction(message)
+                .messages(llmHistoryMessages)
                 .toolCallingEnabled(true)
                 .validationEnabled(true)
                 .build();

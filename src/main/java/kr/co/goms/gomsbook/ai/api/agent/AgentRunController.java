@@ -26,6 +26,7 @@ public class AgentRunController {
 
         String runId = agentRunService.run(
                 request.getProjectId(),
+                request.getConversationId(),
                 request.getMessage()
         );
 

@@ -11,7 +11,10 @@ public class AgentRunRequest {
 
 	@NotBlank(message = "projectId must not be blank")
 	private String projectId;
-	
+
+    @NotBlank(message = "conversationId must not be blank")
+    private String conversationId;
+    
     @NotBlank(message = "message must not be blank")
     private String message;
     
