@@ -13,6 +13,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.jdbc.core.JdbcTemplate;
 
+import com.google.gson.Gson;
+
 import kr.co.goms.gomsbook.ai.accessibility.validation.AccessibilityValidator;
 import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultAccessibilityValidator;
 import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
@@ -30,7 +32,9 @@ import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubProjectApprovalHa
 import kr.co.goms.gomsbook.ai.agent.approval.handler.DeleteEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubCopyrightApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubNavigationApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubCopyrightApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubNavigationApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.event.AgentEventPublisher;
 import kr.co.goms.gomsbook.ai.agent.event.DefaultAgentEventPublisher;
 import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
@@ -77,11 +81,16 @@ import kr.co.goms.gomsbook.ai.tool.epub.author.UpdateEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.copyright.CreateEpubCopyrightTool;
 import kr.co.goms.gomsbook.ai.tool.epub.copyright.UpdateEpubCopyrightTool;
 import kr.co.goms.gomsbook.ai.tool.epub.generation.chapter.CreateBasicXhtmlTool;
+import kr.co.goms.gomsbook.ai.tool.epub.navigation.CreateEpubNavigationTool;
+import kr.co.goms.gomsbook.ai.tool.epub.navigation.UpdateEpubNavigationTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.ApplyEpubTemplateTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.CreateEpubProjectTool;
 import kr.co.goms.gomsbook.ai.epub.generation.author.DefaultEpubAuthorXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorService;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorXhtmlGenerator;
+import kr.co.goms.gomsbook.ai.epub.generation.navigation.DefaultEpubNavigationXhtmlGenerator;
+import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationService;
+import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.navigation.updater.DefaultEpubNavigationUpdater;
 import kr.co.goms.gomsbook.ai.epub.navigation.updater.EpubNavigationUpdater;
 import kr.co.goms.gomsbook.ai.epub.pkg.updater.DefaultEpubPackageUpdater;
@@ -136,6 +145,12 @@ public class AgentEngineConfiguration {
         return new GsonJsonMapper();
     }
 
+    @Bean
+    public Gson gson() {
+
+        return new Gson();
+    }
+    
 
     @Bean
     public LlmClient llmClient(OllamaConfiguration configuration, JsonMapper jsonMapper) {
@@ -283,6 +298,44 @@ public class AgentEngineConfiguration {
         return new DeleteEpubAuthorApprovalHandler(currentProjectProvider, epubAuthorService);
     }    
     
+
+    /*
+     * ============================================================
+     * EPUB Navigation
+     * ============================================================
+     */
+    
+    @Bean
+    public EpubNavigationXhtmlGenerator epubNavigationXhtmlGenerator() {
+        return new DefaultEpubNavigationXhtmlGenerator();
+    }
+
+    
+    @Bean
+    public EpubNavigationService epubNavigationService(EpubNavigationXhtmlGenerator xhtmlGenerator) {
+
+        return new EpubNavigationService(xhtmlGenerator);
+    }
+
+    
+    @Bean
+    public CreateEpubNavigationApprovalHandler createEpubNavigationApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubNavigationService epubNavigationService) {
+
+        return new CreateEpubNavigationApprovalHandler(currentProjectProvider, epubNavigationService);
+    }
+    
+    @Bean
+    public UpdateEpubNavigationApprovalHandler updateEpubNavigationApprovalHandler(
+            CurrentProjectProvider currentProjectProvider,
+            EpubNavigationUpdater navigationUpdater,
+            Gson gson) {
+
+        return new UpdateEpubNavigationApprovalHandler(
+                currentProjectProvider,
+                navigationUpdater,
+                gson);
+    }
+    
     
     /*
      * ============================================================
@@ -373,7 +426,9 @@ public class AgentEngineConfiguration {
             CreateEpubCopyrightApprovalHandler createEpubCopyrightApprovalHandler,
             CreateEpubAuthorApprovalHandler createEpubAuthorApprovalHandler,
             UpdateEpubAuthorApprovalHandler updateEpubAuthorApprovalHandler,
-            DeleteEpubAuthorApprovalHandler deleteEpubAuthorApprovalHandler
+            DeleteEpubAuthorApprovalHandler deleteEpubAuthorApprovalHandler,
+            CreateEpubNavigationApprovalHandler createEpubNavigationApprovalHandler,
+            UpdateEpubNavigationApprovalHandler updateEpubNavigationApprovalHandler
             
             ) {
 
@@ -387,6 +442,8 @@ public class AgentEngineConfiguration {
         registry.register(CreateEpubAuthorTool.TOOL_NAME, createEpubAuthorApprovalHandler);
         registry.register(UpdateEpubAuthorTool.TOOL_NAME, updateEpubAuthorApprovalHandler);
         registry.register(DeleteEpubAuthorTool.TOOL_NAME, deleteEpubAuthorApprovalHandler);
+        registry.register(CreateEpubNavigationTool.TOOL_NAME, createEpubNavigationApprovalHandler);
+        registry.register(UpdateEpubNavigationTool.TOOL_NAME, updateEpubNavigationApprovalHandler);
 
         return registry;
     }
@@ -415,7 +472,8 @@ public class AgentEngineConfiguration {
             AgentEventPublisher eventPublisher,
             CurrentProjectStore currentProjectStore,
             CreateEpubProjectPlanService createEpubProjectPlanService,
-            LatestPublishedEpubResolver latestPublishedEpubResolver, EpubStructureValidator epubStructureValidator
+            LatestPublishedEpubResolver latestPublishedEpubResolver, EpubStructureValidator epubStructureValidator,
+            Gson gson
     		) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -431,7 +489,8 @@ public class AgentEngineConfiguration {
                 createEpubProjectPlanService,
                 epubProjectsRoot,
                 latestPublishedEpubResolver,
-                epubStructureValidator
+                epubStructureValidator,
+                gson
         		);
     }
 
