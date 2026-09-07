@@ -25,6 +25,7 @@ import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalService;
 import kr.co.goms.gomsbook.ai.agent.approval.DefaultAgentApprovalExecutor;
 import kr.co.goms.gomsbook.ai.agent.approval.DefaultAgentApprovalHandlerRegistry;
 import kr.co.goms.gomsbook.ai.agent.approval.DefaultAgentApprovalService;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.ApplyEpubStylesheetApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.ApplyEpubTemplateApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateBasicXhtmlApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubAuthorApprovalHandler;
@@ -33,8 +34,10 @@ import kr.co.goms.gomsbook.ai.agent.approval.handler.DeleteEpubAuthorApprovalHan
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubAuthorApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubCopyrightApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubNavigationApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubPartApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubCopyrightApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubNavigationApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubPartApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.event.AgentEventPublisher;
 import kr.co.goms.gomsbook.ai.agent.event.DefaultAgentEventPublisher;
 import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
@@ -83,14 +86,18 @@ import kr.co.goms.gomsbook.ai.tool.epub.copyright.UpdateEpubCopyrightTool;
 import kr.co.goms.gomsbook.ai.tool.epub.generation.chapter.CreateBasicXhtmlTool;
 import kr.co.goms.gomsbook.ai.tool.epub.navigation.CreateEpubNavigationTool;
 import kr.co.goms.gomsbook.ai.tool.epub.navigation.UpdateEpubNavigationTool;
+import kr.co.goms.gomsbook.ai.tool.epub.part.CreateEpubPartTool;
+import kr.co.goms.gomsbook.ai.tool.epub.part.UpdateEpubPartTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.ApplyEpubTemplateTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.CreateEpubProjectTool;
+import kr.co.goms.gomsbook.ai.tool.epub.resource.ApplyEpubStylesheetTool;
 import kr.co.goms.gomsbook.ai.epub.generation.author.DefaultEpubAuthorXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorService;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.DefaultEpubNavigationXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationService;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationXhtmlGenerator;
+import kr.co.goms.gomsbook.ai.epub.generation.part.EpubPartService;
 import kr.co.goms.gomsbook.ai.epub.navigation.updater.DefaultEpubNavigationUpdater;
 import kr.co.goms.gomsbook.ai.epub.navigation.updater.EpubNavigationUpdater;
 import kr.co.goms.gomsbook.ai.epub.pkg.updater.DefaultEpubPackageUpdater;
@@ -138,6 +145,56 @@ public class AgentEngineConfiguration {
                 .build();
     }
 
+    @Bean
+    public ToolDefinitionMapper toolDefinitionMapper() {
+
+        return new DefaultToolDefinitionMapper();
+    }
+
+
+    @Bean
+    public ToolDefinitionProvider toolDefinitionProvider(ToolRegistry toolRegistry, ToolDefinitionMapper toolDefinitionMapper) {
+
+        return new DefaultToolDefinitionProvider(toolRegistry, toolDefinitionMapper);
+    }
+
+
+    @Bean
+    public ToolExecutor toolExecutor(ToolRegistry toolRegistry, ExecutionLogger executionLogger) {
+
+        return new DefaultToolExecutor(toolRegistry, executionLogger);
+    }
+
+
+    /*
+     * ============================================================
+     * Agent
+     * ============================================================
+     */
+
+    @Bean
+    public AgentExecutor agentExecutor(LlmClient llmClient, ToolExecutor toolExecutor, ToolDefinitionProvider toolDefinitionProvider, ChatModelProvider chatModelProvider) {
+
+        return new DefaultAgentExecutor(llmClient, toolExecutor, toolDefinitionProvider, chatModelProvider);
+    }
+
+
+    /*
+     * ============================================================
+     * Agent Event
+     * ============================================================
+     */
+
+    @Bean
+    public DefaultAgentEventPublisher agentEventPublisher(AgentSseEventDispatcher dispatcher) {
+
+        DefaultAgentEventPublisher publisher = new DefaultAgentEventPublisher();
+
+        publisher.addListener(new SseAgentEventListener(dispatcher));
+
+        return publisher;
+    }
+    
 
     @Bean
     public JsonMapper jsonMapper() {
@@ -336,6 +393,30 @@ public class AgentEngineConfiguration {
                 gson);
     }
     
+    /*
+     * ============================================================
+     * EPUB Part
+     * ============================================================
+     */
+    
+
+    @Bean
+    public EpubPartService epubPartService(EpubPackageUpdater packageUpdater, EpubNavigationUpdater navigationUpdater) {
+
+        return new EpubPartService(packageUpdater, navigationUpdater);
+    }
+    
+    @Bean
+    public CreateEpubPartApprovalHandler createEpubPartApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubPartService epubPartService) {
+
+        return new CreateEpubPartApprovalHandler(currentProjectProvider, epubPartService);
+    }
+    
+    @Bean
+    public UpdateEpubPartApprovalHandler updateEpubPartApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubPartService epubPartService) {
+
+        return new UpdateEpubPartApprovalHandler(currentProjectProvider, epubPartService);
+    }    
     
     /*
      * ============================================================
@@ -417,18 +498,34 @@ public class AgentEngineConfiguration {
         return new ConversationService(conversationRepository, messageRepository);
     }
     
+    /*
+     * ============================================================
+     * EPUB Resource
+     * ============================================================
+     */
+    @Bean
+    public ApplyEpubStylesheetApprovalHandler applyEpubStylesheetApprovalHandler(CurrentProjectProvider currentProjectProvider) {
+
+        return new ApplyEpubStylesheetApprovalHandler(currentProjectProvider);
+    }
+       
+    
+    
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
             CreateBasicXhtmlApprovalHandler createBasicXhtmlApprovalHandler,
             CreateEpubProjectApprovalHandler createEpubProjectApprovalHandler,
             ApplyEpubTemplateApprovalHandler applyEpubTemplateApprovalHandler,
+            ApplyEpubStylesheetApprovalHandler applyEpubStylesheetApprovalHandler,            
             UpdateEpubCopyrightApprovalHandler updateEpubCopyrightApprovalHandler,
             CreateEpubCopyrightApprovalHandler createEpubCopyrightApprovalHandler,
             CreateEpubAuthorApprovalHandler createEpubAuthorApprovalHandler,
             UpdateEpubAuthorApprovalHandler updateEpubAuthorApprovalHandler,
             DeleteEpubAuthorApprovalHandler deleteEpubAuthorApprovalHandler,
             CreateEpubNavigationApprovalHandler createEpubNavigationApprovalHandler,
-            UpdateEpubNavigationApprovalHandler updateEpubNavigationApprovalHandler
+            UpdateEpubNavigationApprovalHandler updateEpubNavigationApprovalHandler,
+            CreateEpubPartApprovalHandler createEpubPartApprovalHandler,
+            UpdateEpubPartApprovalHandler updateEpubPartApprovalHandler
             
             ) {
 
@@ -437,6 +534,7 @@ public class AgentEngineConfiguration {
         registry.register(CreateBasicXhtmlTool.TOOL_NAME, createBasicXhtmlApprovalHandler);
         registry.register(CreateEpubProjectTool.TOOL_NAME, createEpubProjectApprovalHandler);
         registry.register(ApplyEpubTemplateTool.TOOL_NAME, applyEpubTemplateApprovalHandler);
+        registry.register(ApplyEpubStylesheetTool.TOOL_NAME, applyEpubStylesheetApprovalHandler);
         registry.register(UpdateEpubCopyrightTool.TOOL_NAME, updateEpubCopyrightApprovalHandler);
         registry.register(CreateEpubCopyrightTool.TOOL_NAME, createEpubCopyrightApprovalHandler);
         registry.register(CreateEpubAuthorTool.TOOL_NAME, createEpubAuthorApprovalHandler);
@@ -444,6 +542,8 @@ public class AgentEngineConfiguration {
         registry.register(DeleteEpubAuthorTool.TOOL_NAME, deleteEpubAuthorApprovalHandler);
         registry.register(CreateEpubNavigationTool.TOOL_NAME, createEpubNavigationApprovalHandler);
         registry.register(UpdateEpubNavigationTool.TOOL_NAME, updateEpubNavigationApprovalHandler);
+        registry.register(CreateEpubPartTool.TOOL_NAME, createEpubPartApprovalHandler);
+        registry.register(UpdateEpubPartTool.TOOL_NAME, updateEpubPartApprovalHandler);
 
         return registry;
     }
@@ -508,61 +608,5 @@ public class AgentEngineConfiguration {
     }
 
 
-    @Bean
-    public ToolDefinitionMapper toolDefinitionMapper() {
-
-        return new DefaultToolDefinitionMapper();
-    }
-
-
-    @Bean
-    public ToolDefinitionProvider toolDefinitionProvider(ToolRegistry toolRegistry, ToolDefinitionMapper toolDefinitionMapper) {
-
-        return new DefaultToolDefinitionProvider(toolRegistry, toolDefinitionMapper);
-    }
-
-
-    @Bean
-    public ToolExecutor toolExecutor(ToolRegistry toolRegistry, ExecutionLogger executionLogger) {
-
-        return new DefaultToolExecutor(toolRegistry, executionLogger);
-    }
-
-
-    /*
-     * ============================================================
-     * Agent
-     * ============================================================
-     */
-
-    @Bean
-    public AgentExecutor agentExecutor(
-            LlmClient llmClient,
-            ToolExecutor toolExecutor,
-            ToolDefinitionProvider toolDefinitionProvider,
-            ChatModelProvider chatModelProvider) {
-
-        return new DefaultAgentExecutor(
-                llmClient,
-                toolExecutor,
-                toolDefinitionProvider,
-                chatModelProvider);
-    }
-
-
-    /*
-     * ============================================================
-     * Agent Event
-     * ============================================================
-     */
-
-    @Bean
-    public DefaultAgentEventPublisher agentEventPublisher(AgentSseEventDispatcher dispatcher) {
-
-        DefaultAgentEventPublisher publisher = new DefaultAgentEventPublisher();
-
-        publisher.addListener(new SseAgentEventListener(dispatcher));
-
-        return publisher;
-    }
+   
 }
