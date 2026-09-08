@@ -61,7 +61,12 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
 
         try {
 
+            System.out.println("[GomsBook AI API] DefaultAgentEngineBridge.generate called | runId=" + runId + " | projectId=" + projectId + " | message=" + message);
+            System.out.println("[GomsBook AI API] AgentExecutor class = " + agentExecutor.getClass().getName());
+
             AgentResponse response = agentExecutor.execute(request);
+
+            System.out.println("[GomsBook AI API] AgentExecutor completed | runId=" + runId + " | response=" + (response == null ? "null" : response.getContent()));
 
             validateResponse(response);
 

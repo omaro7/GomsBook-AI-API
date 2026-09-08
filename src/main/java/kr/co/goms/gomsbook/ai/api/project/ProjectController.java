@@ -41,7 +41,7 @@ public class ProjectController {
         try {
 
             List<ProjectItemResponse> projects = Files.list(projectRoot)
-                    .filter(Files::isDirectory)
+                    .filter(this::isEpubProject)
                     .sorted(Comparator.comparing(path -> path.getFileName().toString(), String.CASE_INSENSITIVE_ORDER))
                     .map(this::toProjectItem)
                     .toList();
@@ -52,6 +52,15 @@ public class ProjectController {
 
             throw new IllegalStateException("Failed to read EPUB project directories: " + projectRoot, e);
         }
+    }
+
+    private boolean isEpubProject(Path projectPath) {
+
+        if (!Files.isDirectory(projectPath)) return false;
+
+        Path packageDocument = projectPath.resolve(OEBPS_DIRECTORY).resolve(PACKAGE_FILE);
+
+        return Files.isRegularFile(packageDocument);
     }
 
 

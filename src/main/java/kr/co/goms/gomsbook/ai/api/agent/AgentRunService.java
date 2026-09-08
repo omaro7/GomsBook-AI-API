@@ -309,10 +309,9 @@ public class AgentRunService {
 	
 	    } catch (Exception exception) {
 	
-	        fail(
-	                runId,
-	                exception
-	        );
+	        log.error("Agent execution failed | runId={} | error={}", runId, resolveErrorMessage(exception), exception);
+
+	        fail(runId, exception);
 	    }
 	}
     
@@ -320,6 +319,20 @@ public class AgentRunService {
 
         if (toolResult == null) return;
 
+        log.info(
+                "ToolResult received"
+                        + " | runId={}"
+                        + " | toolName={}"
+                        + " | status={}"
+                        + " | hasData={}"
+                        + " | data={}",
+                runId,
+                toolResult.getToolName(),
+                toolResult.getStatus(),
+                toolResult.hasData(),
+                toolResult.getData()
+        );
+        
         AgentEventType type = toolResult.hasError()
                 ? AgentEventType.TOOL_FAILED
                 : AgentEventType.TOOL_COMPLETED;
@@ -561,6 +574,8 @@ public class AgentRunService {
     private void fail(String runId, Exception exception) {
 
         if (!markRunCompleted(runId)) return;
+
+        log.error("Agent run failed | runId={} | error={}", runId, resolveErrorMessage(exception), exception);
 
         sendSafely(
                 AgentEvent.builder()

@@ -29,12 +29,18 @@ import kr.co.goms.gomsbook.ai.agent.approval.handler.ApplyEpubStylesheetApproval
 import kr.co.goms.gomsbook.ai.agent.approval.handler.ApplyEpubTemplateApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateBasicXhtmlApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubAuthorApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubChapterApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubProjectApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.DeleteEpubAuthorApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.DeleteEpubChapterApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubAuthorApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubChapterApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubCopyrightApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubManifestApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubMetadataApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubNavigationApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubPartApprovalHandler;
+import kr.co.goms.gomsbook.ai.agent.approval.handler.UpdateEpubSpineApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubCopyrightApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubNavigationApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubPartApprovalHandler;
@@ -81,9 +87,14 @@ import kr.co.goms.gomsbook.ai.tool.epub.author.CreateEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.author.DeleteEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.author.ReadEpubAuthorTool;
 import kr.co.goms.gomsbook.ai.tool.epub.author.UpdateEpubAuthorTool;
+import kr.co.goms.gomsbook.ai.tool.epub.chapter.CreateEpubChapterTool;
+import kr.co.goms.gomsbook.ai.tool.epub.chapter.DeleteEpubChapterTool;
+import kr.co.goms.gomsbook.ai.tool.epub.chapter.UpdateEpubChapterTool;
 import kr.co.goms.gomsbook.ai.tool.epub.copyright.CreateEpubCopyrightTool;
 import kr.co.goms.gomsbook.ai.tool.epub.copyright.UpdateEpubCopyrightTool;
 import kr.co.goms.gomsbook.ai.tool.epub.generation.chapter.CreateBasicXhtmlTool;
+import kr.co.goms.gomsbook.ai.tool.epub.manifest.UpdateEpubManifestTool;
+import kr.co.goms.gomsbook.ai.tool.epub.metadata.UpdateEpubMetadataTool;
 import kr.co.goms.gomsbook.ai.tool.epub.navigation.CreateEpubNavigationTool;
 import kr.co.goms.gomsbook.ai.tool.epub.navigation.UpdateEpubNavigationTool;
 import kr.co.goms.gomsbook.ai.tool.epub.part.CreateEpubPartTool;
@@ -91,9 +102,13 @@ import kr.co.goms.gomsbook.ai.tool.epub.part.UpdateEpubPartTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.ApplyEpubTemplateTool;
 import kr.co.goms.gomsbook.ai.tool.epub.project.CreateEpubProjectTool;
 import kr.co.goms.gomsbook.ai.tool.epub.resource.ApplyEpubStylesheetTool;
+import kr.co.goms.gomsbook.ai.tool.epub.spine.UpdateEpubSpineTool;
 import kr.co.goms.gomsbook.ai.epub.generation.author.DefaultEpubAuthorXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorService;
 import kr.co.goms.gomsbook.ai.epub.generation.author.EpubAuthorXhtmlGenerator;
+import kr.co.goms.gomsbook.ai.epub.generation.chapter.DefaultEpubChapterXhtmlGenerator;
+import kr.co.goms.gomsbook.ai.epub.generation.chapter.EpubChapterService;
+import kr.co.goms.gomsbook.ai.epub.generation.chapter.EpubChapterXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.DefaultEpubNavigationXhtmlGenerator;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationService;
 import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationXhtmlGenerator;
@@ -104,6 +119,7 @@ import kr.co.goms.gomsbook.ai.epub.pkg.updater.DefaultEpubPackageUpdater;
 import kr.co.goms.gomsbook.ai.epub.pkg.updater.EpubPackageUpdater;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.DefaultEpubSpineOrderPolicy;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.EpubSpineOrderPolicy;
+import kr.co.goms.gomsbook.ai.epub.resource.stylesheet.EpubStylesheetResolver;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -225,10 +241,8 @@ public class AgentEngineConfiguration {
 
     @Bean
     public CurrentProjectStore currentProjectStore() {
-
-        return new InMemoryCurrentProjectStore(Path.of(projectRoot));
+        return new InMemoryCurrentProjectStore();
     }
-
 
     @Bean
     public CurrentProjectProvider currentProjectProvider(CurrentProjectStore currentProjectStore) {
@@ -417,7 +431,44 @@ public class AgentEngineConfiguration {
 
         return new UpdateEpubPartApprovalHandler(currentProjectProvider, epubPartService);
     }    
+
     
+    /*
+     * ============================================================
+     * EPUB Chapter
+     * ============================================================
+     */
+    
+    @Bean
+    public EpubChapterXhtmlGenerator epubChapterXhtmlGenerator() {
+        return new DefaultEpubChapterXhtmlGenerator();
+    }
+
+    @Bean
+    public EpubStylesheetResolver epubStylesheetResolver() {
+        return new EpubStylesheetResolver();
+    }
+
+    @Bean
+    public EpubChapterService epubChapterService(EpubChapterXhtmlGenerator xhtmlGenerator, EpubStylesheetResolver stylesheetResolver, EpubPackageUpdater packageUpdater, EpubNavigationUpdater navigationUpdater) {
+        return new EpubChapterService(xhtmlGenerator, stylesheetResolver, packageUpdater, navigationUpdater);
+    }
+
+    @Bean
+    public CreateEpubChapterApprovalHandler createEpubChapterApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubChapterService epubChapterService) {
+        return new CreateEpubChapterApprovalHandler(currentProjectProvider, epubChapterService);
+    }
+
+    @Bean
+    public UpdateEpubChapterApprovalHandler updateEpubChapterApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubChapterService epubChapterService) {
+        return new UpdateEpubChapterApprovalHandler(currentProjectProvider, epubChapterService);
+    }
+
+    @Bean
+    public DeleteEpubChapterApprovalHandler deleteEpubChapterApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubChapterService epubChapterService) {
+        return new DeleteEpubChapterApprovalHandler(currentProjectProvider, epubChapterService);
+    }
+
     /*
      * ============================================================
      * EPUB Package
@@ -429,7 +480,21 @@ public class AgentEngineConfiguration {
         return new DefaultEpubPackageUpdater(spineOrderPolicy);
     }
     
-
+    @Bean
+    public UpdateEpubSpineApprovalHandler updateEpubSpineApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubPackageUpdater packageUpdater) {
+        return new UpdateEpubSpineApprovalHandler(currentProjectProvider, packageUpdater);
+    }
+    
+    @Bean
+    public UpdateEpubManifestApprovalHandler updateEpubManifestApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubPackageUpdater packageUpdater) {
+        return new UpdateEpubManifestApprovalHandler(currentProjectProvider, packageUpdater);
+    }
+    
+    @Bean
+    public UpdateEpubMetadataApprovalHandler updateEpubMetadataApprovalHandler(CurrentProjectProvider currentProjectProvider, EpubPackageUpdater packageUpdater, Gson gson) {
+        return new UpdateEpubMetadataApprovalHandler(currentProjectProvider, packageUpdater, gson);
+    }
+    
     /*
      * ============================================================
      * Agent Approval
@@ -525,8 +590,13 @@ public class AgentEngineConfiguration {
             CreateEpubNavigationApprovalHandler createEpubNavigationApprovalHandler,
             UpdateEpubNavigationApprovalHandler updateEpubNavigationApprovalHandler,
             CreateEpubPartApprovalHandler createEpubPartApprovalHandler,
-            UpdateEpubPartApprovalHandler updateEpubPartApprovalHandler
-            
+            UpdateEpubPartApprovalHandler updateEpubPartApprovalHandler,
+            CreateEpubChapterApprovalHandler createEpubChapterApprovalHandler,
+            UpdateEpubChapterApprovalHandler updateEpubChapterApprovalHandler,
+            DeleteEpubChapterApprovalHandler deleteEpubChapterApprovalHandler,
+            UpdateEpubSpineApprovalHandler updateEpubSpineApprovalHandler,
+            UpdateEpubManifestApprovalHandler updateEpubManifestApprovalHandler,
+            UpdateEpubMetadataApprovalHandler updateEpubMetadataApprovalHandler
             ) {
 
         AgentApprovalHandlerRegistry registry = new DefaultAgentApprovalHandlerRegistry();
@@ -544,6 +614,12 @@ public class AgentEngineConfiguration {
         registry.register(UpdateEpubNavigationTool.TOOL_NAME, updateEpubNavigationApprovalHandler);
         registry.register(CreateEpubPartTool.TOOL_NAME, createEpubPartApprovalHandler);
         registry.register(UpdateEpubPartTool.TOOL_NAME, updateEpubPartApprovalHandler);
+        registry.register(CreateEpubChapterTool.TOOL_NAME, createEpubChapterApprovalHandler);
+        registry.register(UpdateEpubChapterTool.TOOL_NAME, updateEpubChapterApprovalHandler);
+        registry.register(DeleteEpubChapterTool.TOOL_NAME, deleteEpubChapterApprovalHandler);
+        registry.register(UpdateEpubSpineTool.TOOL_NAME, updateEpubSpineApprovalHandler);
+        registry.register(UpdateEpubManifestTool.TOOL_NAME, updateEpubManifestApprovalHandler);
+        registry.register(UpdateEpubMetadataTool.TOOL_NAME, updateEpubMetadataApprovalHandler);
 
         return registry;
     }
