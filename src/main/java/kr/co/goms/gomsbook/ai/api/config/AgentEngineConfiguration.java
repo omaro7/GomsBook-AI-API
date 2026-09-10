@@ -17,6 +17,8 @@ import com.google.gson.Gson;
 
 import kr.co.goms.gomsbook.ai.accessibility.validation.AccessibilityValidator;
 import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultAccessibilityValidator;
+import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultEpubProjectAccessibilityValidator;
+import kr.co.goms.gomsbook.ai.accessibility.validation.DefaultEpubProjectValidator;
 import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.DefaultAgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalExecutor;
@@ -72,8 +74,6 @@ import kr.co.goms.gomsbook.ai.epub.updater.pkg.DefaultEpubPackageUpdater;
 import kr.co.goms.gomsbook.ai.epub.updater.pkg.EpubPackageUpdater;
 import kr.co.goms.gomsbook.ai.epub.updater.xhtml.DefaultEpubXhtmlUpdater;
 import kr.co.goms.gomsbook.ai.epub.updater.xhtml.EpubXhtmlUpdater;
-import kr.co.goms.gomsbook.ai.epub.validation.DefaultEpubProjectAccessibilityValidator;
-import kr.co.goms.gomsbook.ai.epub.validation.DefaultEpubProjectValidator;
 import kr.co.goms.gomsbook.ai.epub.validation.EpubCheckRunnerValidator;
 import kr.co.goms.gomsbook.ai.epub.validation.EpubCheckValidator;
 import kr.co.goms.gomsbook.ai.epub.validation.EpubProjectAccessibilityValidator;
@@ -132,6 +132,8 @@ import kr.co.goms.gomsbook.ai.epub.generation.navigation.EpubNavigationXhtmlGene
 import kr.co.goms.gomsbook.ai.epub.generation.part.EpubPartService;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.DefaultEpubSpineOrderPolicy;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.EpubSpineOrderPolicy;
+import kr.co.goms.gomsbook.ai.epub.publish.DefaultEpubArtifactFingerprintService;
+import kr.co.goms.gomsbook.ai.epub.publish.EpubArtifactFingerprintService;
 import kr.co.goms.gomsbook.ai.epub.resource.stylesheet.EpubStylesheetResolver;
 import kr.co.goms.gomsbook.ai.epub.validation.DefaultEpubFileCheckIssueAnalyzer;
 import kr.co.goms.gomsbook.ai.epub.validation.EpubFileCheckIssueAnalyzer;
@@ -141,6 +143,12 @@ import kr.co.goms.gomsbook.ai.epub.validation.fix.DefaultEpubFileCheckFixService
 import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixPlan;
 import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixResolver;
 import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixService;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.AriaAccessibilityRule;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.DocumentLanguageAccessibilityRule;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.HeadingAccessibilityRule;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.ImageAltAccessibilityRule;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.LinkAccessibilityRule;
+import kr.co.goms.gomsbook.ai.accessibility.validation.rule.TableAccessibilityRule;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -301,6 +309,12 @@ public class AgentEngineConfiguration {
         return new DefaultCreateEpubProjectPlanService(store);
     }
 
+    @Bean
+    public EpubArtifactFingerprintService epubArtifactFingerprintService() {
+
+        return new DefaultEpubArtifactFingerprintService();
+    }
+    
     /*
      * ============================================================
      * EPUB Policy
@@ -630,7 +644,15 @@ public class AgentEngineConfiguration {
     @Bean
     public AccessibilityValidator accessibilityValidator() {
 
-        return new DefaultAccessibilityValidator(List.of());
+        return new DefaultAccessibilityValidator(
+                List.of(
+                        new AriaAccessibilityRule(),
+                        new DocumentLanguageAccessibilityRule(),
+                        new HeadingAccessibilityRule(),
+                        new ImageAltAccessibilityRule(),
+                        new LinkAccessibilityRule(),
+                        new TableAccessibilityRule()
+                ));
     }
 
     @Bean
@@ -749,7 +771,8 @@ public class AgentEngineConfiguration {
             Gson gson,
 			EpubProjectAccessibilityValidator epubProjectAccessibilityValidator, EpubProjectValidator epubProjectValidator,
 			EpubCheckRunner epubCheckRunner ,
-			EpubFileCheckFixService  epubFileCheckFixService  
+			EpubFileCheckFixService epubFileCheckFixService,
+			EpubArtifactFingerprintService epubArtifactFingerprintService
     		) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -770,7 +793,8 @@ public class AgentEngineConfiguration {
                 epubProjectAccessibilityValidator,
                 epubProjectValidator,
                 epubCheckRunner,
-                epubFileCheckFixService
+                epubFileCheckFixService,
+                epubArtifactFingerprintService
         		);
     }
 
