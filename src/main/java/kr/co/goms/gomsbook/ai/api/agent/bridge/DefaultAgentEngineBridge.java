@@ -9,6 +9,7 @@ import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.AgentRequest;
 import kr.co.goms.gomsbook.ai.agent.AgentResponse;
 import kr.co.goms.gomsbook.ai.agent.AgentToolResultListener;
+import kr.co.goms.gomsbook.ai.api.agent.prompt.GomsBookAgentSystemPrompt;
 import kr.co.goms.gomsbook.ai.conversation.model.AiConversationMessageRole;
 import kr.co.goms.gomsbook.ai.conversation.model.ConversationHistoryMessage;
 import kr.co.goms.gomsbook.ai.llm.LlmMessage;
@@ -120,6 +121,7 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
                 .attribute("projectId", projectId)
                 .attribute("conversationId", conversationId)
                 .instruction(message)
+                .systemPrompt(GomsBookAgentSystemPrompt.DEFAULT)
                 .messages(llmHistoryMessages)
                 .toolCallingEnabled(true)
                 .validationEnabled(true)

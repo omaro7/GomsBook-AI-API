@@ -47,6 +47,10 @@ import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubNavigationApprova
 import kr.co.goms.gomsbook.ai.agent.approval.handler.CreateEpubPartApprovalHandler;
 import kr.co.goms.gomsbook.ai.agent.event.AgentEventPublisher;
 import kr.co.goms.gomsbook.ai.agent.event.DefaultAgentEventPublisher;
+import kr.co.goms.gomsbook.ai.agent.prompt.ToolResponsePromptResolver;
+import kr.co.goms.gomsbook.ai.api.agent.prompt.ToolResponsePromptRegistry;
+import kr.co.goms.gomsbook.ai.api.agent.prompt.rule.AgentPromptRule;
+import kr.co.goms.gomsbook.ai.api.agent.prompt.rule.ValidateEpubFilePromptRule;
 import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
 import kr.co.goms.gomsbook.ai.api.agent.sse.SseAgentEventListener;
 import kr.co.goms.gomsbook.ai.conversation.repository.AiConversationMessageRepository;
@@ -129,6 +133,14 @@ import kr.co.goms.gomsbook.ai.epub.generation.part.EpubPartService;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.DefaultEpubSpineOrderPolicy;
 import kr.co.goms.gomsbook.ai.epub.policy.spine.EpubSpineOrderPolicy;
 import kr.co.goms.gomsbook.ai.epub.resource.stylesheet.EpubStylesheetResolver;
+import kr.co.goms.gomsbook.ai.epub.validation.DefaultEpubFileCheckIssueAnalyzer;
+import kr.co.goms.gomsbook.ai.epub.validation.EpubFileCheckIssueAnalyzer;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.DefaultEpubFileCheckFixPlan;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.DefaultEpubFileCheckFixResolver;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.DefaultEpubFileCheckFixService;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixPlan;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixResolver;
+import kr.co.goms.gomsbook.ai.epub.validation.fix.EpubFileCheckFixService;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -198,11 +210,20 @@ public class AgentEngineConfiguration {
      */
 
     @Bean
-    public AgentExecutor agentExecutor(LlmClient llmClient, ToolExecutor toolExecutor, ToolDefinitionProvider toolDefinitionProvider, ChatModelProvider chatModelProvider) {
+    public AgentExecutor agentExecutor(
+            LlmClient llmClient,
+            ToolExecutor toolExecutor,
+            ToolDefinitionProvider toolDefinitionProvider,
+            ChatModelProvider chatModelProvider,
+            ToolResponsePromptResolver toolResponsePromptResolver) {
 
-        return new DefaultAgentExecutor(llmClient, toolExecutor, toolDefinitionProvider, chatModelProvider);
+        return new DefaultAgentExecutor(
+                llmClient,
+                toolExecutor,
+                toolDefinitionProvider,
+                chatModelProvider,
+                toolResponsePromptResolver);
     }
-
 
     /*
      * ============================================================
@@ -575,17 +596,14 @@ public class AgentEngineConfiguration {
     
     /*
      * ============================================================
-     * EPUB Project Plan
+     * EPUB Validation
      * ============================================================
      */
     
     @Bean
     public EpubCheckRunner epubCheckRunner() {
 
-        return new EpubCheckRunner(
-                Path.of(
-                        epubCheckDirectory),
-                epubCheckVersion);
+        return new EpubCheckRunner(Path.of(epubCheckDirectory), epubCheckVersion);
     }
 
     @Bean
@@ -594,6 +612,21 @@ public class AgentEngineConfiguration {
         return new EpubCheckRunnerValidator(epubCheckRunner, epubCheckVersion);
     }
 
+    @Bean
+    public EpubFileCheckIssueAnalyzer epubFileCheckIssueAnalyzer() {
+        return new DefaultEpubFileCheckIssueAnalyzer();
+    }
+
+    @Bean
+    public EpubFileCheckFixPlan epubFileCheckFixPlan() {
+        return new DefaultEpubFileCheckFixPlan();
+    }
+
+    @Bean
+    public EpubFileCheckFixResolver epubFileCheckFixResolver() {
+        return new DefaultEpubFileCheckFixResolver();
+    }
+    
     @Bean
     public AccessibilityValidator accessibilityValidator() {
 
@@ -617,6 +650,26 @@ public class AgentEngineConfiguration {
         return new ValidateEpubProjectTool(currentProjectProvider, epubProjectValidator);
     }
     
+    @Bean
+    public EpubFileCheckFixService epubFileCheckFixService(EpubFileCheckIssueAnalyzer issueAnalyzer, EpubFileCheckFixPlan fixPlan, EpubFileCheckFixResolver fixResolver) {
+
+        return new DefaultEpubFileCheckFixService(issueAnalyzer, fixPlan, fixResolver);
+    }    
+    
+    /*
+     * ============================================================
+     * Agent Tool Response Prompt Rule
+     * ============================================================
+     */
+    @Bean
+    public ValidateEpubFilePromptRule validateEpubFilePromptRule() {
+        return new ValidateEpubFilePromptRule();
+    }
+
+    @Bean
+    public ToolResponsePromptResolver toolResponsePromptResolver(List<AgentPromptRule> promptRules) {
+        return new ToolResponsePromptRegistry(promptRules);
+    }
     
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
@@ -694,7 +747,9 @@ public class AgentEngineConfiguration {
             CreateEpubProjectPlanService createEpubProjectPlanService,
             LatestPublishedEpubResolver latestPublishedEpubResolver, EpubStructureValidator epubStructureValidator,
             Gson gson,
-			EpubProjectAccessibilityValidator epubProjectAccessibilityValidator, EpubProjectValidator epubProjectValidator
+			EpubProjectAccessibilityValidator epubProjectAccessibilityValidator, EpubProjectValidator epubProjectValidator,
+			EpubCheckRunner epubCheckRunner ,
+			EpubFileCheckFixService  epubFileCheckFixService  
     		) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -713,7 +768,9 @@ public class AgentEngineConfiguration {
                 epubStructureValidator,
                 gson,
                 epubProjectAccessibilityValidator,
-                epubProjectValidator
+                epubProjectValidator,
+                epubCheckRunner,
+                epubFileCheckFixService
         		);
     }
 
