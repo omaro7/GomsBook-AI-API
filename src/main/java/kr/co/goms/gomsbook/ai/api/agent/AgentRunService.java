@@ -1,11 +1,11 @@
 package kr.co.goms.gomsbook.ai.api.agent;
 
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.function.Consumer;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,13 +16,13 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import kr.co.goms.gomsbook.ai.agent.approval.AgentApproval;
 import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalExecutor;
 import kr.co.goms.gomsbook.ai.agent.approval.AgentApprovalService;
+import kr.co.goms.gomsbook.ai.agent.event.AgentRagEventListener;
+import kr.co.goms.gomsbook.ai.agent.event.payload.RagContextPayload;
 import kr.co.goms.gomsbook.ai.api.agent.bridge.AgentEngineBridge;
 import kr.co.goms.gomsbook.ai.api.agent.sse.AgentSseEventDispatcher;
-import kr.co.goms.gomsbook.ai.tool.ToolResult;
-import kr.co.goms.gomsbook.ai.conversation.service.ConversationService;
-
-import java.util.List;
 import kr.co.goms.gomsbook.ai.conversation.model.ConversationHistoryMessage;
+import kr.co.goms.gomsbook.ai.conversation.service.ConversationService;
+import kr.co.goms.gomsbook.ai.tool.ToolResult;
 
 @Service
 public class AgentRunService {
@@ -233,88 +233,90 @@ public class AgentRunService {
         completeIfNoPendingApproval(runId);
     }
 
-    private void executeAgent(
-        String runId,
-        String projectId,
-        String message) {
+    private void executeAgent(String runId, String projectId, String message) {
 
-	    try {
-	
-	        send(
-	                AgentEvent.builder()
-	                        .runId(runId)
-	                        .type(AgentEventType.AGENT_STARTED)
-	                        .message("Agent 실행을 시작합니다.")
-	                        .build()
-	        );
-	
-	        RunTraceContext context = runContexts.get(runId);
-	
-	        if (context == null) throw new IllegalStateException("Run trace context not found: " + runId);
-	
-	        List<ConversationHistoryMessage> historyMessages =
-	                conversationService.getConversationHistory(
-	                        context.conversationId(),
-	                        runId
-	                );
-	
-	        System.out.println(
-	                "[GomsBook AI API] Conversation History"
-	                        + " | conversationId=" + context.conversationId()
-	                        + " | messageCount=" + historyMessages.size()
-	        );
-	
-	        String response =
-	                agentEngineBridge.generate(
-	                        runId,
-	                        projectId,
-	                        context.conversationId(),
-	                        historyMessages,
-	                        message,
-	                        toolResult -> handleToolResult(
-	                                runId,
-	                                toolResult
-	                        )
-	                );
-	
-	        if (response != null && !response.isBlank()) {
-	
-	            conversationService.addAssistantMessage(
-	                    context.conversationId(),
-	                    runId,
-	                    response
-	            );
-	
-	            send(
-	                    AgentEvent.builder()
-	                            .runId(runId)
-	                            .type(AgentEventType.ASSISTANT_MESSAGE)
-	                            .message(response)
-	                            .build()
-	            );
-	        }
-	
-	        if (hasPendingApproval(runId)) {
-	
-	            System.out.println(
-	                    "[GomsBook AI API] Agent waiting for approval"
-	                            + " | runId=" + runId
-	                            + " | pendingApprovalCount=" + PendingApprovalRunHolder.count(runId)
-	            );
-	
-	            return;
-	        }
-	
-	        completeRun(runId);
-	
-	    } catch (Exception exception) {
-	
-	        log.error("Agent execution failed | runId={} | error={}", runId, resolveErrorMessage(exception), exception);
+        try {
 
-	        fail(runId, exception);
-	    }
-	}
-    
+            send(
+                    AgentEvent.builder()
+                            .runId(runId)
+                            .type(AgentEventType.AGENT_STARTED)
+                            .message("Agent 실행을 시작합니다.")
+                            .build()
+            );
+
+            RunTraceContext context = runContexts.get(runId);
+
+            if (context == null) throw new IllegalStateException("Run trace context not found: " + runId);
+
+            List<ConversationHistoryMessage> historyMessages = conversationService.getConversationHistory(context.conversationId(), runId);
+
+            System.out.println(
+                    "[GomsBook AI API] Conversation History"
+                            + " | conversationId=" + context.conversationId()
+                            + " | messageCount=" + historyMessages.size()
+            );
+
+            String response = agentEngineBridge.generate(
+                    runId,
+                    projectId,
+                    context.conversationId(),
+                    historyMessages,
+                    message,
+                    toolResult -> handleToolResult(runId, toolResult),
+                    new AgentRagEventListener() {
+
+                        @Override
+                        public void onStarted(String eventRunId) {
+                            handleRagStarted(eventRunId);
+                        }
+
+                        @Override
+                        public void onContext(String eventRunId, RagContextPayload payload) {
+                            handleRagContext(eventRunId, payload);
+                        }
+
+                        @Override
+                        public void onCompleted(String eventRunId) {
+                            handleRagCompleted(eventRunId);
+                        }
+                    }
+            );
+
+            if (response != null && !response.isBlank()) {
+
+                conversationService.addAssistantMessage(context.conversationId(), runId, response);
+
+                send(
+                        AgentEvent.builder()
+                                .runId(runId)
+                                .type(AgentEventType.ASSISTANT_MESSAGE)
+                                .message(response)
+                                .build()
+                );
+            }
+
+            if (hasPendingApproval(runId)) {
+
+                System.out.println(
+                        "[GomsBook AI API] Agent waiting for approval"
+                                + " | runId=" + runId
+                                + " | pendingApprovalCount=" + PendingApprovalRunHolder.count(runId)
+                );
+
+                return;
+            }
+
+            completeRun(runId);
+
+        } catch (Exception exception) {
+
+            log.error("Agent execution failed | runId={} | error={}", runId, resolveErrorMessage(exception), exception);
+
+            fail(runId, exception);
+        }
+    }
+	
     private void handleToolResult(String runId, ToolResult toolResult) {
 
         if (toolResult == null) return;
@@ -834,5 +836,45 @@ public class AgentRunService {
         private String getLabel() {
             return label;
         }
+    }
+    
+    private void handleRagContext(String runId, RagContextPayload payload) {
+
+        if (payload == null) return;
+
+        String text = payload.getText();
+
+        if (text == null || text.isBlank()) return;
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_CONTEXT)
+                        .message("관련 RAG Context를 찾았습니다.")
+                        .data(payload)
+                        .build()
+        );
+    }
+    
+    private void handleRagStarted(String runId) {
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_STARTED)
+                        .message("RAG 검색을 시작합니다.")
+                        .build()
+        );
+    }
+    
+    private void handleRagCompleted(String runId) {
+
+        sendSafely(
+                AgentEvent.builder()
+                        .runId(runId)
+                        .type(AgentEventType.RAG_COMPLETED)
+                        .message("RAG 검색이 완료되었습니다.")
+                        .build()
+        );
     }
 }

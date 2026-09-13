@@ -2,6 +2,7 @@ package kr.co.goms.gomsbook.ai.api.agent.bridge;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Consumer;
 
 import org.springframework.stereotype.Component;
 
@@ -9,12 +10,12 @@ import kr.co.goms.gomsbook.ai.agent.AgentExecutor;
 import kr.co.goms.gomsbook.ai.agent.AgentRequest;
 import kr.co.goms.gomsbook.ai.agent.AgentResponse;
 import kr.co.goms.gomsbook.ai.agent.AgentToolResultListener;
+import kr.co.goms.gomsbook.ai.agent.event.AgentRagEventListener;
+import kr.co.goms.gomsbook.ai.agent.event.payload.RagContextPayload;
 import kr.co.goms.gomsbook.ai.api.agent.prompt.GomsBookAgentSystemPrompt;
 import kr.co.goms.gomsbook.ai.conversation.model.AiConversationMessageRole;
 import kr.co.goms.gomsbook.ai.conversation.model.ConversationHistoryMessage;
 import kr.co.goms.gomsbook.ai.llm.LlmMessage;
-
-import java.util.function.Consumer;
 import kr.co.goms.gomsbook.ai.tool.ToolResult;
 
 @Component
@@ -33,32 +34,45 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
         requireText(conversationId, "conversationId");
         requireText(message, "message");
 
-        AgentRequest request = AgentRequest.builder().requestId(runId).sessionId(conversationId).instruction(message).toolCallingEnabled(true).validationEnabled(true).build();
+        AgentRequest request = AgentRequest.builder()
+                .requestId(runId)
+                .sessionId(conversationId)
+                .instruction(message)
+                .toolCallingEnabled(true)
+                .validationEnabled(true)
+                .build();
 
         AgentResponse response = agentExecutor.execute(request);
 
-        if (response == null) throw new IllegalStateException("Agent returned null response.");
-        if (response.isFailure()) throw new IllegalStateException(createErrorMessage(response));
-        if (!response.hasContent()) throw new IllegalStateException("Agent returned empty content.");
+        validateResponse(response);
 
         return response.getContent();
     }
 
     @Override
-    public String generate(String runId, String projectId, String conversationId, List<ConversationHistoryMessage> _historyMessages, String message, Consumer<ToolResult> toolResultConsumer) {
+    public String generate(
+            String runId,
+            String projectId,
+            String conversationId,
+            List<ConversationHistoryMessage> historyMessages,
+            String message,
+            Consumer<ToolResult> toolResultConsumer,
+            AgentRagEventListener ragEventListener) {
 
         requireText(runId, "runId");
         requireText(projectId, "projectId");
         requireText(conversationId, "conversationId");
         requireText(message, "message");
 
-        List<LlmMessage> llmHistoryMessages = toLlmMessages(_historyMessages);
-        
+        List<LlmMessage> llmHistoryMessages = toLlmMessages(historyMessages);
+
         AgentRequest request = createRequest(runId, projectId, conversationId, message, llmHistoryMessages);
 
-        AgentToolResultListener listener = createToolResultListener(runId, toolResultConsumer);
+        AgentToolResultListener toolListener = createToolResultListener(runId, toolResultConsumer);
+        AgentRagEventListener ragListener = createRagEventListener(runId, ragEventListener);
 
-        if (listener != null) agentExecutor.addToolResultListener(listener);
+        if (toolListener != null) agentExecutor.addToolResultListener(toolListener);
+        if (ragListener != null) agentExecutor.addRagEventListener(ragListener);
 
         try {
 
@@ -75,10 +89,11 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
 
         } finally {
 
-            if (listener != null) agentExecutor.removeToolResultListener(listener);
+            if (toolListener != null) agentExecutor.removeToolResultListener(toolListener);
+            if (ragListener != null) agentExecutor.removeRagEventListener(ragListener);
         }
     }
-    
+
     @Override
     public void executeApproved(String runId, String approvalId, String action, String fileName, String content) {
 
@@ -91,11 +106,11 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
         throw new UnsupportedOperationException("Approved EPUB execution is not connected yet.");
     }
 
-    private List<LlmMessage> toLlmMessages(List<ConversationHistoryMessage> _historyMessages) {
+    private List<LlmMessage> toLlmMessages(List<ConversationHistoryMessage> historyMessages) {
 
-        if (_historyMessages == null || _historyMessages.isEmpty()) return List.of();
+        if (historyMessages == null || historyMessages.isEmpty()) return List.of();
 
-        return _historyMessages.stream()
+        return historyMessages.stream()
                 .map(this::toLlmMessage)
                 .filter(Objects::nonNull)
                 .toList();
@@ -104,15 +119,18 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
     private LlmMessage toLlmMessage(ConversationHistoryMessage message) {
 
         if (message == null || message.content() == null || message.content().isBlank()) return null;
-
         if (message.role() == AiConversationMessageRole.USER) return LlmMessage.user(message.content());
         if (message.role() == AiConversationMessageRole.ASSISTANT) return LlmMessage.assistant(message.content());
 
         return null;
     }
-    
 
-    private AgentRequest createRequest(String runId, String projectId, String conversationId, String message, List<LlmMessage> llmHistoryMessages) {
+    private AgentRequest createRequest(
+            String runId,
+            String projectId,
+            String conversationId,
+            String message,
+            List<LlmMessage> llmHistoryMessages) {
 
         return AgentRequest.builder()
                 .requestId(runId)
@@ -127,58 +145,82 @@ public class DefaultAgentEngineBridge implements AgentEngineBridge {
                 .validationEnabled(true)
                 .build();
     }
-    
-    private AgentToolResultListener createToolResultListener(
-            String runId,
-            Consumer<ToolResult> toolResultConsumer) {
 
-        if (toolResultConsumer == null) {
+    private AgentToolResultListener createToolResultListener(String runId, Consumer<ToolResult> toolResultConsumer) {
 
-            return null;
-        }
+        if (toolResultConsumer == null) return null;
 
         return result -> {
 
-            if (result == null) {
+            if (result == null) return;
 
-                return;
-            }
+            String requestId = result.getRequestId();
 
-            String requestId =
-                    result.getRequestId();
+            if (requestId != null && !requestId.isBlank() && !runId.equals(requestId)) return;
 
-            if (requestId != null
-                    && !requestId.isBlank()
-                    && !runId.equals(
-                            requestId
-                    )) {
-
-                return;
-            }
-
-            toolResultConsumer.accept(
-                    result
-            );
+            toolResultConsumer.accept(result);
         };
     }
-    
+
+    private AgentRagEventListener createRagEventListener(String runId, AgentRagEventListener ragEventListener) {
+
+        if (ragEventListener == null) return null;
+
+        return new AgentRagEventListener() {
+
+            @Override
+            public void onStarted(String eventRunId) {
+
+                if (!matchesRunId(runId, eventRunId)) return;
+
+                ragEventListener.onStarted(eventRunId);
+            }
+
+            @Override
+            public void onContext(String eventRunId, RagContextPayload payload) {
+
+                if (!matchesRunId(runId, eventRunId)) return;
+                if (payload == null) return;
+
+                ragEventListener.onContext(eventRunId, payload);
+            }
+
+            @Override
+            public void onCompleted(String eventRunId) {
+
+                if (!matchesRunId(runId, eventRunId)) return;
+
+                ragEventListener.onCompleted(eventRunId);
+            }
+        };
+    }
+
+    private boolean matchesRunId(String runId, String eventRunId) {
+        return eventRunId != null && !eventRunId.isBlank() && runId.equals(eventRunId);
+    }
+
     private static void validateResponse(AgentResponse response) {
 
         if (response == null) throw new IllegalStateException("Agent returned null response.");
-
         if (response.isFailure()) throw new IllegalStateException(createErrorMessage(response));
-
         if (!response.hasContent()) throw new IllegalStateException("Agent returned empty content.");
     }
-    
+
     private static String createErrorMessage(AgentResponse response) {
+
         String errorMessage = response.getErrorMessage();
-        return errorMessage == null || errorMessage.isBlank() ? "Agent execution failed." : "Agent execution failed: " + errorMessage;
+
+        return errorMessage == null || errorMessage.isBlank()
+                ? "Agent execution failed."
+                : "Agent execution failed: " + errorMessage;
     }
 
     private static String requireText(String value, String name) {
+
         Objects.requireNonNull(value, name + " must not be null");
+
         if (value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
+
         return value;
     }
 }
