@@ -195,7 +195,15 @@ import kr.co.goms.gomsbook.ai.rag.document.DefaultDocumentLoader;
 import kr.co.goms.gomsbook.ai.rag.document.DocumentLoader;
 import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingClient;
 import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingModelProvider;
+import kr.co.goms.gomsbook.ai.rag.eval.path.DefaultRagEvaluationPathResolver;
+import kr.co.goms.gomsbook.ai.rag.eval.path.RagEvaluationPathResolver;
+import kr.co.goms.gomsbook.ai.rag.eval.runtime.RagEvaluationComponentFactory;
+import kr.co.goms.gomsbook.ai.rag.eval.runtime.RagEvaluationRuntime;
+import kr.co.goms.gomsbook.ai.rag.eval.service.DefaultRagEvaluationService;
+import kr.co.goms.gomsbook.ai.rag.eval.service.RagEvaluationService;
 import kr.co.goms.gomsbook.ai.rag.expansion.ChunkContextProvider;
+import kr.co.goms.gomsbook.ai.rag.expansion.ContextExpander;
+import kr.co.goms.gomsbook.ai.rag.expansion.DefaultContextExpander;
 import kr.co.goms.gomsbook.ai.rag.expansion.InMemoryChunkContextProvider;
 import kr.co.goms.gomsbook.ai.rag.index.DefaultDocumentIndexer;
 import kr.co.goms.gomsbook.ai.rag.index.DefaultProjectRagIndexer;
@@ -935,6 +943,26 @@ public class AgentEngineConfiguration {
         return new DefaultProjectRagIndexer(documentLoader, documentIndexer, embeddingClient, vectorStore, chunkContextProvider);
     }
     
+    @Bean
+    public RagEvaluationPathResolver ragEvaluationPathResolver(PublishDirectoryProvider publishDirectoryProvider) {
+        return new DefaultRagEvaluationPathResolver(publishDirectoryProvider);
+    }
+
+    @Bean
+    public ContextExpander contextExpander(ChunkContextProvider chunkContextProvider) {
+        return new DefaultContextExpander(chunkContextProvider);
+    }
+    
+    @Bean
+    public RagEvaluationRuntime ragEvaluationRuntime(CurrentProjectProvider currentProjectProvider, ProjectRagIndexer projectRagIndexer, Retriever retriever, ContextExpander contextExpander, LlmClient llmClient) {
+        return RagEvaluationComponentFactory.createRuntime(currentProjectProvider, projectRagIndexer, retriever, contextExpander, llmClient, chatModel);
+    }
+    
+    @Bean
+    public RagEvaluationService ragEvaluationService(CurrentProjectProvider currentProjectProvider, RagEvaluationPathResolver pathResolver, RagEvaluationRuntime runtime) {
+        return new DefaultRagEvaluationService(currentProjectProvider, pathResolver, runtime);
+    }
+    
     
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
@@ -1032,7 +1060,8 @@ public class AgentEngineConfiguration {
 			KoreanTypoChecker koreanTypoChecker,
 			EpubReleasePolicy releasePolicy,
             RagService ragService,
-            ProjectRagIndexer projectRagIndexer
+            ProjectRagIndexer projectRagIndexer,
+            RagEvaluationService evaluationService
     	) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -1059,7 +1088,8 @@ public class AgentEngineConfiguration {
                 koreanTypoChecker,
                 releasePolicy,
 	            ragService,
-	            projectRagIndexer
+	            projectRagIndexer,
+	            evaluationService
                 
         );
     }
