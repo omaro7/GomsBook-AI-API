@@ -97,12 +97,15 @@ import kr.co.goms.gomsbook.ai.json.JsonMapper;
 import kr.co.goms.gomsbook.ai.llm.LlmClient;
 import kr.co.goms.gomsbook.ai.llm.model.ChatModelProvider;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaConfiguration;
+import kr.co.goms.gomsbook.ai.llm.ollama.OllamaEmbeddingClient;
 import kr.co.goms.gomsbook.ai.llm.ollama.OllamaLlmClient;
 import kr.co.goms.gomsbook.ai.logging.ExecutionLogger;
 import kr.co.goms.gomsbook.ai.project.CurrentProjectProvider;
 import kr.co.goms.gomsbook.ai.project.CurrentProjectStore;
 import kr.co.goms.gomsbook.ai.project.DefaultCurrentProjectProvider;
 import kr.co.goms.gomsbook.ai.project.InMemoryCurrentProjectStore;
+import kr.co.goms.gomsbook.ai.rag.RagService;
+import kr.co.goms.gomsbook.ai.rag.index.ProjectRagIndexer;
 import kr.co.goms.gomsbook.ai.tool.AgentToolRegistrar;
 import kr.co.goms.gomsbook.ai.tool.DefaultAgentToolRegistrar;
 import kr.co.goms.gomsbook.ai.tool.DefaultToolDefinitionMapper;
@@ -186,6 +189,23 @@ import kr.co.goms.gomsbook.ai.accessibility.validation.rule.LinkAccessibilityRul
 import kr.co.goms.gomsbook.ai.accessibility.validation.rule.TableAccessibilityRule;
 import kr.co.goms.gomsbook.ai.epub.proofreading.KoreanTypoChecker;
 import kr.co.goms.gomsbook.ai.epub.proofreading.DictionaryKoreanTypoChecker;
+import kr.co.goms.gomsbook.ai.rag.DefaultRagService;
+import kr.co.goms.gomsbook.ai.rag.context.RagContextBuilder;
+import kr.co.goms.gomsbook.ai.rag.document.DefaultDocumentLoader;
+import kr.co.goms.gomsbook.ai.rag.document.DocumentLoader;
+import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingClient;
+import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingModelProvider;
+import kr.co.goms.gomsbook.ai.rag.expansion.ChunkContextProvider;
+import kr.co.goms.gomsbook.ai.rag.expansion.InMemoryChunkContextProvider;
+import kr.co.goms.gomsbook.ai.rag.index.DefaultDocumentIndexer;
+import kr.co.goms.gomsbook.ai.rag.index.DefaultProjectRagIndexer;
+import kr.co.goms.gomsbook.ai.rag.index.DocumentIndexer;
+import kr.co.goms.gomsbook.ai.rag.prompt.DefaultPromptAugmentor;
+import kr.co.goms.gomsbook.ai.rag.prompt.PromptAugmentor;
+import kr.co.goms.gomsbook.ai.rag.retrieval.DefaultRetriever;
+import kr.co.goms.gomsbook.ai.rag.retrieval.Retriever;
+import kr.co.goms.gomsbook.ai.rag.vector.InMemoryVectorStore;
+import kr.co.goms.gomsbook.ai.rag.vector.VectorStore;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -308,6 +328,11 @@ public class AgentEngineConfiguration {
         return new OllamaLlmClient(configuration, jsonMapper);
     }
 
+    @Bean
+    public EmbeddingClient embeddingClient(OllamaConfiguration configuration, JsonMapper jsonMapper) {
+
+        return new OllamaEmbeddingClient(configuration, jsonMapper);
+    }
 
     @Bean
     public ChatModelProvider chatModelProvider() {
@@ -843,6 +868,73 @@ public class AgentEngineConfiguration {
 
     }
     
+    /*
+     * ============================================================
+     * RAG
+     * ============================================================
+     */
+
+    @Bean
+    public DocumentLoader documentLoader() {
+
+        return new DefaultDocumentLoader();
+    }
+
+    @Bean
+    public DocumentIndexer documentIndexer() {
+
+        return new DefaultDocumentIndexer();
+    }
+
+
+    @Bean
+    public EmbeddingModelProvider embeddingModelProvider(OllamaConfiguration configuration) {
+
+        return () -> configuration.getEmbeddingModel();
+    }
+
+    @Bean
+    public VectorStore vectorStore() {
+
+        return new InMemoryVectorStore();
+    }
+
+    @Bean
+    public Retriever retriever(EmbeddingClient embeddingClient, EmbeddingModelProvider embeddingModelProvider, VectorStore vectorStore) {
+
+        return new DefaultRetriever(embeddingClient, embeddingModelProvider, vectorStore);
+    }
+
+    @Bean
+    public RagContextBuilder ragContextBuilder() {
+
+        return new RagContextBuilder();
+    }
+
+    @Bean
+    public PromptAugmentor promptAugmentor() {
+
+        return new DefaultPromptAugmentor();
+    }
+
+    @Bean
+    public ChunkContextProvider chunkContextProvider() {
+
+        return new InMemoryChunkContextProvider();
+    }
+    
+    @Bean
+    public RagService ragService(Retriever retriever, RagContextBuilder ragContextBuilder, PromptAugmentor promptAugmentor) {
+
+        return new DefaultRagService(retriever, ragContextBuilder, promptAugmentor);
+    }
+
+    @Bean
+    public ProjectRagIndexer projectRagIndexer(DocumentLoader documentLoader, DocumentIndexer documentIndexer, EmbeddingClient embeddingClient, VectorStore vectorStore, ChunkContextProvider chunkContextProvider) {
+
+        return new DefaultProjectRagIndexer(documentLoader, documentIndexer, embeddingClient, vectorStore, chunkContextProvider);
+    }
+    
     
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
@@ -938,7 +1030,9 @@ public class AgentEngineConfiguration {
 			EpubArtifactFingerprintService epubArtifactFingerprintService,
 			EpubTypographyUpdater epubTypographyUpdater,
 			KoreanTypoChecker koreanTypoChecker,
-			EpubReleasePolicy releasePolicy
+			EpubReleasePolicy releasePolicy,
+            RagService ragService,
+            ProjectRagIndexer projectRagIndexer
     	) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -963,7 +1057,10 @@ public class AgentEngineConfiguration {
                 epubArtifactFingerprintService,
                 epubTypographyUpdater,
                 koreanTypoChecker,
-                releasePolicy
+                releasePolicy,
+	            ragService,
+	            projectRagIndexer
+                
         );
     }
 
