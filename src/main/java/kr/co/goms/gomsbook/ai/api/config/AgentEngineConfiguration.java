@@ -8,9 +8,11 @@ package kr.co.goms.gomsbook.ai.api.config;
 import java.nio.file.Path;
 import java.util.List;
 
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 import org.springframework.jdbc.core.JdbcTemplate;
 
 import com.google.gson.Gson;
@@ -168,7 +170,6 @@ import kr.co.goms.gomsbook.ai.epub.reader.pkg.EpubSpineReader;
 import kr.co.goms.gomsbook.ai.epub.release.DefaultEpubReleasePolicy;
 import kr.co.goms.gomsbook.ai.epub.release.DefaultEpubReleaseService;
 import kr.co.goms.gomsbook.ai.epub.release.EpubReleasePolicy;
-import kr.co.goms.gomsbook.ai.epub.release.EpubReleasePolicy;
 import kr.co.goms.gomsbook.ai.epub.release.EpubReleaseRepository;
 import kr.co.goms.gomsbook.ai.epub.release.EpubReleaseService;
 import kr.co.goms.gomsbook.ai.epub.release.FileSystemEpubReleaseRepository;
@@ -195,25 +196,48 @@ import kr.co.goms.gomsbook.ai.rag.document.DefaultDocumentLoader;
 import kr.co.goms.gomsbook.ai.rag.document.DocumentLoader;
 import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingClient;
 import kr.co.goms.gomsbook.ai.rag.embedding.EmbeddingModelProvider;
+import kr.co.goms.gomsbook.ai.rag.eval.comparison.DefaultRagEvaluationComparisonService;
+import kr.co.goms.gomsbook.ai.rag.eval.comparison.RagEvaluationComparisonService;
+import kr.co.goms.gomsbook.ai.rag.eval.comparison.RagEvaluationComparisonWriter;
+import kr.co.goms.gomsbook.ai.rag.eval.comparison.RagEvaluationReportComparator;
+import kr.co.goms.gomsbook.ai.rag.eval.dataset.RagEvaluationDatasetLoader;
+import kr.co.goms.gomsbook.ai.rag.eval.mapper.RagRetrievalResultMapper;
 import kr.co.goms.gomsbook.ai.rag.eval.path.DefaultRagEvaluationPathResolver;
 import kr.co.goms.gomsbook.ai.rag.eval.path.RagEvaluationPathResolver;
+import kr.co.goms.gomsbook.ai.rag.eval.profile.RagEvaluationProfile;
+import kr.co.goms.gomsbook.ai.rag.eval.profile.RagEvaluationVersion;
+import kr.co.goms.gomsbook.ai.rag.eval.retrieval.DefaultRagRetrievalEvaluator;
+import kr.co.goms.gomsbook.ai.rag.eval.retrieval.RagRetrievalEvaluator;
+import kr.co.goms.gomsbook.ai.rag.eval.runner.RagRetrievalEvaluationRunner;
 import kr.co.goms.gomsbook.ai.rag.eval.runtime.RagEvaluationComponentFactory;
 import kr.co.goms.gomsbook.ai.rag.eval.runtime.RagEvaluationRuntime;
 import kr.co.goms.gomsbook.ai.rag.eval.service.DefaultRagEvaluationService;
+import kr.co.goms.gomsbook.ai.rag.eval.service.DefaultRagRetrievalEvaluationService;
 import kr.co.goms.gomsbook.ai.rag.eval.service.RagEvaluationService;
+import kr.co.goms.gomsbook.ai.rag.eval.service.RagRetrievalEvaluationService;
 import kr.co.goms.gomsbook.ai.rag.expansion.ChunkContextProvider;
 import kr.co.goms.gomsbook.ai.rag.expansion.ContextExpander;
 import kr.co.goms.gomsbook.ai.rag.expansion.DefaultContextExpander;
 import kr.co.goms.gomsbook.ai.rag.expansion.InMemoryChunkContextProvider;
+import kr.co.goms.gomsbook.ai.rag.graph.GraphExpansionProvider;
+import kr.co.goms.gomsbook.ai.rag.graph.epub.DefaultEpubGraphDocumentPolicy;
+import kr.co.goms.gomsbook.ai.rag.graph.epub.DefaultEpubGraphExpansionProvider;
+import kr.co.goms.gomsbook.ai.rag.graph.epub.EpubGraphDocumentPolicy;
 import kr.co.goms.gomsbook.ai.rag.index.DefaultDocumentIndexer;
 import kr.co.goms.gomsbook.ai.rag.index.DefaultProjectRagIndexer;
 import kr.co.goms.gomsbook.ai.rag.index.DocumentIndexer;
 import kr.co.goms.gomsbook.ai.rag.prompt.DefaultPromptAugmentor;
 import kr.co.goms.gomsbook.ai.rag.prompt.PromptAugmentor;
 import kr.co.goms.gomsbook.ai.rag.retrieval.DefaultRetriever;
+import kr.co.goms.gomsbook.ai.rag.retrieval.HybridRetriever;
+import kr.co.goms.gomsbook.ai.rag.retrieval.RagRetrievalMode;
 import kr.co.goms.gomsbook.ai.rag.retrieval.Retriever;
+import kr.co.goms.gomsbook.ai.rag.retrieval.VectorGraphRetriever;
 import kr.co.goms.gomsbook.ai.rag.vector.InMemoryVectorStore;
 import kr.co.goms.gomsbook.ai.rag.vector.VectorStore;
+import io.qdrant.client.QdrantClient;
+import io.qdrant.client.QdrantGrpcClient;
+import kr.co.goms.gomsbook.ai.rag.vector.qdrant.QdrantConfiguration;
 
 @Configuration
 public class AgentEngineConfiguration {
@@ -242,6 +266,24 @@ public class AgentEngineConfiguration {
     @Value("${gomsbook.ai.korean-typo-dictionary}")
     private String koreanTypoDictionary;
 
+    @Value("${gomsbook.ai.rag.evaluation.retrieval-mode:VECTOR_ONLY}")
+    private String ragEvaluationRetrievalMode;
+    
+    @Value("${gomsbook.ai.rag.evaluation.version:V1}")
+    private String ragEvaluationVersion;
+    
+    @Value("${gomsbook.ai.qdrant.host}")
+    private String qdrantHost;
+
+    @Value("${gomsbook.ai.qdrant.grpc-port}")
+    private int qdrantGrpcPort;
+
+    @Value("${gomsbook.ai.qdrant.collection-name}")
+    private String qdrantCollectionName;
+
+    @Value("${gomsbook.ai.qdrant.tls}")
+    private boolean qdrantTls;
+    
     @Bean
     public OllamaConfiguration ollamaConfiguration() {
 
@@ -954,15 +996,121 @@ public class AgentEngineConfiguration {
     }
     
     @Bean
-    public RagEvaluationRuntime ragEvaluationRuntime(CurrentProjectProvider currentProjectProvider, ProjectRagIndexer projectRagIndexer, Retriever retriever, ContextExpander contextExpander, LlmClient llmClient) {
-        return RagEvaluationComponentFactory.createRuntime(currentProjectProvider, projectRagIndexer, retriever, contextExpander, llmClient, chatModel);
+    public RagEvaluationRuntime ragEvaluationRuntime(CurrentProjectProvider currentProjectProvider, ProjectRagIndexer projectRagIndexer, 
+    		@Qualifier("ragEvaluationRetriever") Retriever retriever, ContextExpander contextExpander, LlmClient llmClient) {
+    	
+    	return RagEvaluationComponentFactory.createRuntime(currentProjectProvider, projectRagIndexer, retriever, contextExpander, llmClient, chatModel);
     }
     
     @Bean
-    public RagEvaluationService ragEvaluationService(CurrentProjectProvider currentProjectProvider, RagEvaluationPathResolver pathResolver, RagEvaluationRuntime runtime) {
-        return new DefaultRagEvaluationService(currentProjectProvider, pathResolver, runtime);
+    public RagEvaluationService ragEvaluationService(CurrentProjectProvider currentProjectProvider, RagEvaluationPathResolver pathResolver, RagEvaluationRuntime runtime, RagEvaluationProfile ragEvaluationProfile) {
+    	return new DefaultRagEvaluationService(currentProjectProvider, pathResolver, runtime, ragEvaluationProfile);
     }
     
+    @Bean
+    public EpubGraphDocumentPolicy epubGraphDocumentPolicy() {
+    	return new DefaultEpubGraphDocumentPolicy();
+    }
+    
+    @Bean("vectorOnlyRetriever")
+    @Primary
+    public Retriever vectorOnlyRetriever(EmbeddingClient embeddingClient, EmbeddingModelProvider embeddingModelProvider, VectorStore vectorStore) {
+    	return new DefaultRetriever(embeddingClient, embeddingModelProvider, vectorStore);
+    }
+    
+    @Bean("vectorGraphRetriever")
+    public Retriever vectorGraphRetriever(@Qualifier("vectorOnlyRetriever") Retriever vectorRetriever, GraphExpansionProvider graphExpansionProvider, RagEvaluationProfile ragEvaluationProfile) {
+    	return new VectorGraphRetriever(vectorRetriever, graphExpansionProvider, ragEvaluationProfile.getGraphWeight(), ragEvaluationProfile.getGraphSeedLimit(), ragEvaluationProfile.isGraphCandidateChunkFilterEnabled());
+    }
+    
+    @Bean("hybridRetriever")
+    public Retriever hybridRetriever(@Qualifier("vectorOnlyRetriever") Retriever vectorOnlyRetriever, @Qualifier("vectorGraphRetriever") Retriever vectorGraphRetriever, RagEvaluationProfile ragEvaluationProfile) {
+    	return new HybridRetriever(vectorOnlyRetriever, vectorGraphRetriever, ragEvaluationProfile.getHybridVectorWeight(), ragEvaluationProfile.getHybridVectorGraphWeight(), ragEvaluationProfile.getHybridRrfK(), ragEvaluationProfile.getHybridBranchCandidateMultiplier());
+    }
+    
+    @Bean("ragEvaluationRetriever")
+    public Retriever ragEvaluationRetriever(@Qualifier("vectorOnlyRetriever") Retriever vectorOnlyRetriever, @Qualifier("vectorGraphRetriever") Retriever vectorGraphRetriever, @Qualifier("hybridRetriever") Retriever hybridRetriever, RagEvaluationProfile ragEvaluationProfile) {
+
+    	return switch (ragEvaluationProfile.getRetrievalMode()) {
+    		case VECTOR_ONLY -> vectorOnlyRetriever;
+    		case VECTOR_GRAPH -> vectorGraphRetriever;
+    		case HYBRID -> hybridRetriever;
+    	};
+    }
+    
+    @Bean
+    public GraphExpansionProvider epubGraphExpansionProvider(CurrentProjectProvider currentProjectProvider, EpubManifestReader manifestReader, EpubSpineReader spineReader, EpubGraphDocumentPolicy epubGraphDocumentPolicy) {
+    	return new DefaultEpubGraphExpansionProvider(currentProjectProvider, manifestReader, spineReader, epubGraphDocumentPolicy);
+    }
+    
+    @Bean
+    public RagEvaluationDatasetLoader ragEvaluationDatasetLoader() {
+    	return new RagEvaluationDatasetLoader();
+    }
+    
+    @Bean
+    public RagRetrievalResultMapper ragRetrievalResultMapper() {
+    	return new RagRetrievalResultMapper();
+    }
+    
+    @Bean
+    public RagRetrievalEvaluator ragRetrievalEvaluator() {
+    	return new DefaultRagRetrievalEvaluator();
+    }
+    
+    @Bean
+    public RagRetrievalEvaluationRunner ragRetrievalEvaluationRunner(CurrentProjectProvider currentProjectProvider, ProjectRagIndexer projectRagIndexer, @Qualifier("ragEvaluationRetriever") Retriever retriever, RagRetrievalResultMapper ragRetrievalResultMapper, RagRetrievalEvaluator ragRetrievalEvaluator) {
+    	return new RagRetrievalEvaluationRunner(currentProjectProvider, projectRagIndexer, retriever, ragRetrievalResultMapper, ragRetrievalEvaluator);
+    }
+
+    @Bean
+    public RagRetrievalEvaluationService ragRetrievalEvaluationService(CurrentProjectProvider currentProjectProvider, RagEvaluationPathResolver ragEvaluationPathResolver, RagEvaluationDatasetLoader ragEvaluationDatasetLoader, RagRetrievalEvaluationRunner ragRetrievalEvaluationRunner) {
+    	return new DefaultRagRetrievalEvaluationService(currentProjectProvider, ragEvaluationPathResolver, ragEvaluationDatasetLoader, ragRetrievalEvaluationRunner);
+    }
+    
+    @Bean
+    public RagEvaluationProfile ragEvaluationProfile() {
+    	return RagEvaluationProfile.of(RagRetrievalMode.from(ragEvaluationRetrievalMode), RagEvaluationVersion.from(ragEvaluationVersion));
+    }
+    
+    @Bean
+    public RagEvaluationReportComparator ragEvaluationReportComparator() {
+    	return new RagEvaluationReportComparator();
+    }
+
+    @Bean
+    public RagEvaluationComparisonWriter ragEvaluationComparisonWriter() {
+    	return new RagEvaluationComparisonWriter();
+    }
+
+    @Bean
+    public RagEvaluationComparisonService ragEvaluationComparisonService(CurrentProjectProvider currentProjectProvider, RagEvaluationPathResolver ragEvaluationPathResolver, RagEvaluationReportComparator ragEvaluationReportComparator, RagEvaluationComparisonWriter ragEvaluationComparisonWriter) {
+    	return new DefaultRagEvaluationComparisonService(currentProjectProvider, ragEvaluationPathResolver, ragEvaluationReportComparator, ragEvaluationComparisonWriter);
+    }
+    
+    /*
+     * ============================================================
+     * RAG - Qdrant
+     * ============================================================
+     */
+
+    @Bean
+    public QdrantConfiguration qdrantConfiguration() {
+
+        return new QdrantConfiguration(qdrantHost, qdrantGrpcPort, qdrantCollectionName, qdrantTls);
+    }
+    
+    @Bean(destroyMethod = "close")
+    public QdrantClient qdrantClient(QdrantConfiguration configuration) {
+
+        return new QdrantClient(QdrantGrpcClient.newBuilder(configuration.getHost(), configuration.getGrpcPort(), configuration.isTls()).build());
+    }
+    
+    /*
+     * ============================================================
+     * AgentApprovalHandlerRegistry
+     * ============================================================
+     */
     
     @Bean
     public AgentApprovalHandlerRegistry agentApprovalHandlerRegistry(
@@ -1061,7 +1209,10 @@ public class AgentEngineConfiguration {
 			EpubReleasePolicy releasePolicy,
             RagService ragService,
             ProjectRagIndexer projectRagIndexer,
-            RagEvaluationService evaluationService
+            RagEvaluationService evaluationService,
+            RagEvaluationProfile ragEvaluationProfile,
+            RagRetrievalEvaluationService ragRetrievalEvaluationService,
+            RagEvaluationComparisonService ragEvaluationComparisonService
     	) {
 
         Path epubProjectsRoot = Path.of("C:\\1004.GomsBook\\03.Project");
@@ -1089,8 +1240,10 @@ public class AgentEngineConfiguration {
                 releasePolicy,
 	            ragService,
 	            projectRagIndexer,
-	            evaluationService
-                
+	            evaluationService,
+	            ragEvaluationProfile,
+	            ragRetrievalEvaluationService,
+	            ragEvaluationComparisonService
         );
     }
 
